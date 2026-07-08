@@ -14,6 +14,14 @@ export const REVIEW_WINDOW_SIMULATED_HOURS = 1;
  * score computed at assignment time, not a fixed delay. */
 export const AUTO_APPROVE_TRUST_THRESHOLD = 70;
 
+/** If a running task is still not delivered once elapsed time crosses this
+ * multiple of its quoted ETA, VYRON treats it as stalled and self-heals —
+ * reassigns to a different agent — rather than waiting indefinitely. Set
+ * below the delivery-delay factor a busy/lower-rated agent actually runs
+ * at, so genuinely slow assignments get caught mid-flight instead of only
+ * ever completing (however late). */
+export const STALL_DETECTION_MULTIPLIER = 1.15;
+
 export function simulatedHoursElapsedSince(iso: string): number {
   return (Date.now() - Date.parse(iso)) / 1000 / REAL_SECONDS_PER_SIMULATED_HOUR;
 }

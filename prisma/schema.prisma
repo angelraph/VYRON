@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String          @id @default(cuid())
+  clerkId          String?         @unique
+  email            String          @unique
+  name             String
+  budget           Int?
+  timezone         String?
+  preferredStack   String?
+  favoriteAgentIds String[]        @default([])
+  goals            Goal[]
+  agentAffinities  AgentAffinity[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+/** How many times a user's goals have used a given agent — a lightweight
+ * "memory" signal that nudges future matching toward agents that have
+ * already worked out for this user. */
+model AgentAffinity {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  count   Int    @default(0)
+
+  @@unique([userId, agentId])
+}
+
+model Goal {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String
+  status         GoalStatus     @default(planning)
+  budget         Int
+  tasks          WorkflowTask[]
+  activityEvents ActivityEvent[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+enum GoalStatus {
+  planning
+  in_progress
+  completed
+}
+
+model Agent {
+  id               String          @id @default(cuid())
+  name             String          @unique
+  avatarUrl        String?
+  tagline          String
+  bio              String
+  specializations  String[]        @default([])
+  rating           Float           @default(0)
+  completedJobs    Int             @default(0)
+  pricePerTask     Int
+  etaHours         Int
+  availability     AgentAvailability @default(available)
+  joinedAt         DateTime        @default(now())
+  tasks            WorkflowTask[]
+  escrowTxs        EscrowTransaction[]
+  activityEvents   ActivityEvent[]
+  affinities       AgentAffinity[]
+}
+
+enum AgentAvailability {
+  available
+  busy
+  offline
+}
+
+model WorkflowTask {
+  id             String             @id @default(cuid())
+  goalId         String
+  goal           Goal               @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  title          String
+  description    String
+  order          Int
+  dependsOn      String[]           @default([])
+  status         WorkflowTaskStatus @default(pending)
+  specialization String             @default("")
+  agentId        String?
+  agent          Agent?             @relation(fields: [agentId], references: [id])
+  price          Int
+  etaHours       Int
+  trustScore     Int?
+  matchRationale String?
+  startedAt      DateTime?
+  reviewStartedAt DateTime?
+  escrowTxs      EscrowTransaction[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+enum WorkflowTaskStatus {
+  pending
+  running
+  review
+  completed
+  paid
+}
+
+model EscrowTransaction {
+  id         String       @id @default(cuid())
+  taskId     String
+  task       WorkflowTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  agentId    String
+  agent      Agent        @relation(fields: [agentId], references: [id])
+  amount     Int
+  status     EscrowStatus @default(locked)
+  createdAt  DateTime     @default(now())
+  releasedAt DateTime?
+}
+
+enum EscrowStatus {
+  locked
+  released
+  refunded
+  disputed
+}
+
+model ActivityEvent {
+  id        String            @id @default(cuid())
+  type      ActivityEventType
+  message   String
+  goalId    String?
+  goal      Goal?             @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  agentId   String?
+  agent     Agent?            @relation(fields: [agentId], references: [id])
+  createdAt DateTime          @default(now())
+}
+
+enum ActivityEventType {
+  goal_created
+  goal_completed
+  agent_matched
+  agent_reassigned
+  task_started
+  task_delivered
+  task_verified
+  escrow_locked
+  escrow_released
+  escrow_refunded
+}

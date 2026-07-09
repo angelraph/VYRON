@@ -2,14 +2,29 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Loader2 } from "lucide-react";
+import dynamic from "next/dynamic";
+import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { ExecutionConsole } from "@/components/dashboard/execution-console";
 import type { VeeEvent } from "@/lib/execution-engine";
+
+// Deferred until a goal is actually submitted — the framer-motion-driven
+// console shouldn't add to the JS the initial goal form needs to load.
+const ExecutionConsole = dynamic(
+  () =>
+    import("@/components/dashboard/execution-console").then(
+      (m) => m.ExecutionConsole,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[20rem] animate-pulse rounded-2xl bg-muted/40" />
+    ),
+  },
+);
 
 type Phase = "form" | "streaming" | "done" | "error";
 
@@ -162,10 +177,16 @@ export function NewGoalForm() {
           </div>
         )}
         {phase !== "error" && (
-          <p className="text-muted-foreground flex items-center gap-2 text-xs">
-            <Loader2 className="size-3 animate-spin" />
+          <p
+            className={`flex items-center gap-2 text-xs ${phase === "done" ? "text-emerald-400" : "text-muted-foreground"}`}
+          >
+            {phase === "done" ? (
+              <CheckCircle2 className="size-3.5" />
+            ) : (
+              <Loader2 className="size-3 animate-spin" />
+            )}
             {phase === "done"
-              ? "Execution started — opening your workflow..."
+              ? "Execution Plan Ready — opening your workflow..."
               : "VEE pipeline in progress..."}
           </p>
         )}

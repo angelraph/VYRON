@@ -1,8 +1,10 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingStatus } from "@/components/dashboard/loading-status";
 
 export default function DashboardLoading() {
   return (
     <div>
+      <LoadingStatus label="Pulling live execution state from VEE..." />
       <div className="mb-6 flex items-center justify-between">
         <div className="space-y-2">
           <Skeleton className="h-8 w-56" />

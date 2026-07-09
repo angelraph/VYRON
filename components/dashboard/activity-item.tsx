@@ -11,6 +11,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { formatRelativeTime } from "@/lib/format";
+import { TxLink } from "@/components/dashboard/tx-link";
 import type { ActivityEvent } from "@/lib/types";
 
 const ICONS: Record<ActivityEvent["type"], typeof Target> = {
@@ -39,6 +40,7 @@ export function ActivityItem({ event }: { event: ActivityEvent }) {
         <p className="text-muted-foreground text-xs">
           {formatRelativeTime(event.createdAt)}
         </p>
+        <TxLink txHash={event.txHash} explorerUrl={event.explorerUrl} />
       </div>
     </div>
   );

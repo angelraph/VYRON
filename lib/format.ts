@@ -30,16 +30,18 @@ export function formatRelativeTime(iso: string): string {
   return "just now";
 }
 
+/** Execution-pipeline vocabulary, not generic ticket-tracker states — every
+ * label names what VYRON is actually doing to the task right now. */
 export const WORKFLOW_TASK_STATUS_LABEL: Record<WorkflowTaskStatus, string> = {
-  pending: "Pending",
-  running: "Running",
-  review: "Review",
-  completed: "Completed",
-  paid: "Paid",
+  pending: "Queued",
+  running: "Executing",
+  review: "Verifying",
+  completed: "Delivered",
+  paid: "Settled",
 };
 
 export const GOAL_STATUS_LABEL: Record<GoalStatus, string> = {
-  planning: "Planning",
-  in_progress: "In progress",
-  completed: "Completed",
+  planning: "Drafting Plan",
+  in_progress: "Executing",
+  completed: "Execution Complete",
 };

@@ -1,10 +1,10 @@
 import "server-only";
+import { cache } from "react";
 import type {
   ActivityEvent,
   ActivityEventType,
   Agent,
   AgentAvailability,
-  DashboardStats,
   EscrowTransaction,
   Goal,
   UserPreferences,
@@ -35,7 +35,10 @@ function newId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-export async function getAgents(): Promise<Agent[]> {
+/** Cached per-request via React's `cache()` — the agent roster is read
+ * repeatedly across a single render (stats, goal cards, execution engine)
+ * and never mutated mid-request, so dedupe is free and safe. */
+export const getAgents = cache(async (): Promise<Agent[]> => {
   if (!isDatabaseConfigured) return mockStore.agents;
   const prisma = await getPrisma();
   const agents = await prisma.agent.findMany({ orderBy: { rating: "desc" } });
@@ -43,7 +46,7 @@ export async function getAgents(): Promise<Agent[]> {
     ...agent,
     joinedAt: agent.joinedAt.toISOString(),
   }));
-}
+});
 
 export async function getAgentById(id: string): Promise<Agent | null> {
   if (!isDatabaseConfigured) {
@@ -223,10 +226,12 @@ export async function logActivityEvent(event: ActivityEvent): Promise<void> {
   });
 }
 
-export async function getEscrowTransactionsByGoal(
-  goalId: string,
+/** Escrow rows for tasks the caller already fetched — lets pages that
+ * already hold a goal's tasks (e.g. dashboard stats) pull escrow without
+ * re-querying those same tasks a second time. */
+export async function getEscrowTransactionsForTasks(
+  tasks: WorkflowTask[],
 ): Promise<EscrowTransaction[]> {
-  const tasks = await getWorkflowTasksByGoal(goalId);
   if (!isDatabaseConfigured) {
     const taskIds = new Set(tasks.map((task) => task.id));
     return mockStore.escrow.filter((tx) => taskIds.has(tx.taskId));
@@ -240,6 +245,13 @@ export async function getEscrowTransactionsByGoal(
     createdAt: tx.createdAt.toISOString(),
     releasedAt: tx.releasedAt ? tx.releasedAt.toISOString() : null,
   }));
+}
+
+export async function getEscrowTransactionsByGoal(
+  goalId: string,
+): Promise<EscrowTransaction[]> {
+  const tasks = await getWorkflowTasksByGoal(goalId);
+  return getEscrowTransactionsForTasks(tasks);
 }
 
 export async function getTaskById(taskId: string): Promise<WorkflowTask | null> {
@@ -321,93 +333,34 @@ export async function markGoalCompleted(goalId: string): Promise<void> {
   });
 }
 
-export async function getDashboardStats(
-  userId: string,
-): Promise<DashboardStats> {
-  const goals = await getGoals(userId);
-  const tasksByGoal = await Promise.all(
-    goals.map((goal) => getWorkflowTasksByGoal(goal.id)),
-  );
-  const tasks = tasksByGoal.flat();
-  const escrowByGoal = await Promise.all(
-    goals.map((goal) => getEscrowTransactionsByGoal(goal.id)),
-  );
-  const escrowTxs = escrowByGoal.flat();
-  const agents = await getAgents();
-
-  const activeGoalsCount = goals.filter(
-    (goal) => goal.status !== "completed",
-  ).length;
-
-  const paidTasks = tasks.filter((task) => task.status === "paid");
-  const jobsCompleted = tasks.filter((task) =>
-    ["completed", "paid"].includes(task.status),
-  ).length;
-
-  const totalSpent = escrowTxs
-    .filter((tx) => tx.status === "released")
-    .reduce((sum, tx) => sum + tx.amount, 0);
-
-  // Modeled as the gap between what marketplace list price would cost across
-  // all specializations touched vs. the matched (often lower) agent price.
-  const totalSaved = Math.round(totalSpent * 0.12);
-
-  const avgCompletionHours = paidTasks.length
-    ? Math.round(
-        paidTasks.reduce((sum, task) => sum + task.etaHours, 0) /
-          paidTasks.length,
-      )
-    : 0;
-
-  const agentTaskCounts = new Map<string, number>();
-  for (const task of tasks) {
-    if (!task.agentId) continue;
-    agentTaskCounts.set(
-      task.agentId,
-      (agentTaskCounts.get(task.agentId) ?? 0) + 1,
-    );
-  }
-  const topAgentId = [...agentTaskCounts.entries()].sort(
-    (a, b) => b[1] - a[1],
-  )[0]?.[0];
-  const topAgent = agents.find((agent) => agent.id === topAgentId);
-
-  return {
-    activeGoalsCount,
-    jobsCompleted,
-    totalSpent,
-    totalSaved,
-    avgCompletionHours,
-    topAgent: topAgent
-      ? { id: topAgent.id, name: topAgent.name, avatarUrl: topAgent.avatarUrl }
-      : null,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Persistent memory: user preferences + agent affinity
 // ---------------------------------------------------------------------------
 
-export async function getUserPreferences(userId: string): Promise<UserPreferences> {
-  if (!isDatabaseConfigured) {
-    return (
-      mockStore.preferences.get(userId) ?? {
-        ...MOCK_USER_PREFERENCES,
-        userId,
-      }
-    );
-  }
-  const prisma = await getPrisma();
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  return {
-    userId,
-    budget: user?.budget ?? null,
-    timezone: user?.timezone ?? null,
-    preferredStack: user?.preferredStack ?? null,
-    favoriteAgentIds: user?.favoriteAgentIds ?? [],
-    walletAddress: user?.walletAddress ?? null,
-  };
-}
+/** Cached per-request — read at goal-submission time, at settings render,
+ * and by the monitor's self-healing path; never mutated mid-request. */
+export const getUserPreferences = cache(
+  async (userId: string): Promise<UserPreferences> => {
+    if (!isDatabaseConfigured) {
+      return (
+        mockStore.preferences.get(userId) ?? {
+          ...MOCK_USER_PREFERENCES,
+          userId,
+        }
+      );
+    }
+    const prisma = await getPrisma();
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    return {
+      userId,
+      budget: user?.budget ?? null,
+      timezone: user?.timezone ?? null,
+      preferredStack: user?.preferredStack ?? null,
+      favoriteAgentIds: user?.favoriteAgentIds ?? [],
+      walletAddress: user?.walletAddress ?? null,
+    };
+  },
+);
 
 export async function updateUserPreferences(
   userId: string,
@@ -459,21 +412,24 @@ export async function getAgentAffinity(
   return record?.count ?? 0;
 }
 
-export async function getAgentAffinityMap(
-  userId: string,
-): Promise<Map<string, number>> {
-  if (!isDatabaseConfigured) {
-    const prefix = `${userId}:`;
-    const map = new Map<string, number>();
-    for (const [key, count] of mockStore.affinity.entries()) {
-      if (key.startsWith(prefix)) map.set(key.slice(prefix.length), count);
+/** Cached per-request. Read once per request ahead of any affinity
+ * increments (goal creation, self-healing reassignment) — never re-read
+ * after a write within the same request, so memoization can't go stale. */
+export const getAgentAffinityMap = cache(
+  async (userId: string): Promise<Map<string, number>> => {
+    if (!isDatabaseConfigured) {
+      const prefix = `${userId}:`;
+      const map = new Map<string, number>();
+      for (const [key, count] of mockStore.affinity.entries()) {
+        if (key.startsWith(prefix)) map.set(key.slice(prefix.length), count);
+      }
+      return map;
     }
-    return map;
-  }
-  const prisma = await getPrisma();
-  const records = await prisma.agentAffinity.findMany({ where: { userId } });
-  return new Map(records.map((record) => [record.agentId, record.count]));
-}
+    const prisma = await getPrisma();
+    const records = await prisma.agentAffinity.findMany({ where: { userId } });
+    return new Map(records.map((record) => [record.agentId, record.count]));
+  },
+);
 
 async function incrementAgentAffinity(
   userId: string,
@@ -609,6 +565,8 @@ export async function createGoalWithWorkflow(
     agentId: null,
   });
 
+  const agentsById = new Map((await getAgents()).map((agent) => [agent.id, agent]));
+
   for (const task of tasks) {
     if (!task.agentId) continue;
 
@@ -628,6 +586,7 @@ export async function createGoalWithWorkflow(
       taskId: task.id,
       agentId: task.agentId,
       amount: task.price,
+      agentWalletAddress: agentsById.get(task.agentId)?.walletAddress,
     });
     await logActivityEvent({
       id: newId("evt"),
@@ -636,6 +595,8 @@ export async function createGoalWithWorkflow(
       createdAt: now,
       goalId: goal.id,
       agentId: task.agentId,
+      txHash: escrow.txHash ?? null,
+      explorerUrl: escrow.explorerUrl ?? null,
     });
     await logActivityEvent({
       id: newId("evt"),
@@ -683,7 +644,7 @@ export async function reassignTask(params: {
       (tx) => tx.taskId === taskId && tx.status === "locked",
     );
     if (openEscrow) {
-      await escrowProvider.refund(openEscrow.id);
+      const refunded = await escrowProvider.refund(openEscrow.id);
       await logActivityEvent({
         id: newId("evt"),
         type: "escrow_refunded",
@@ -691,6 +652,8 @@ export async function reassignTask(params: {
         createdAt: now,
         goalId,
         agentId: previousAgentId,
+        txHash: refunded.txHash ?? null,
+        explorerUrl: refunded.explorerUrl ?? null,
       });
     }
 
@@ -708,7 +671,7 @@ export async function reassignTask(params: {
       where: { taskId, status: "locked" },
     });
     if (openEscrow) {
-      await escrowProvider.refund(openEscrow.id);
+      const refunded = await escrowProvider.refund(openEscrow.id);
       await logActivityEvent({
         id: newId("evt"),
         type: "escrow_refunded",
@@ -716,6 +679,8 @@ export async function reassignTask(params: {
         createdAt: now,
         goalId,
         agentId: previousAgentId,
+        txHash: refunded.txHash ?? null,
+        explorerUrl: refunded.explorerUrl ?? null,
       });
     }
 
@@ -740,10 +705,12 @@ export async function reassignTask(params: {
   );
 
   if (task.status === "running") {
+    const newAgent = await getAgentById(newAgentId);
     const escrow = await escrowProvider.lock({
       taskId,
       agentId: newAgentId,
       amount: task.price,
+      agentWalletAddress: newAgent?.walletAddress,
     });
     await logActivityEvent({
       id: newId("evt"),
@@ -752,6 +719,8 @@ export async function reassignTask(params: {
       createdAt: now,
       goalId,
       agentId: newAgentId,
+      txHash: escrow.txHash ?? null,
+      explorerUrl: escrow.explorerUrl ?? null,
     });
   }
 

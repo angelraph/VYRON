@@ -170,7 +170,7 @@ async function settleTask(
 
   const escrow = agentId ? await getLockedEscrowForTask(taskId) : null;
   if (escrow) {
-    await escrowProvider.release(escrow.id);
+    const released = await escrowProvider.release(escrow.id);
     await logActivityEvent({
       id: newId("evt"),
       type: "escrow_released",
@@ -178,6 +178,8 @@ async function settleTask(
       createdAt: now,
       goalId,
       agentId,
+      txHash: released.txHash ?? null,
+      explorerUrl: released.explorerUrl ?? null,
     });
   }
 }
@@ -212,6 +214,7 @@ async function activateReadyDependents(
       taskId: task.id,
       agentId: task.agentId,
       amount: task.price,
+      agentWalletAddress: agentsById.get(task.agentId)?.walletAddress,
     });
     await logActivityEvent({
       id: newId("evt"),
@@ -220,6 +223,8 @@ async function activateReadyDependents(
       createdAt: now,
       goalId,
       agentId: task.agentId,
+      txHash: escrow.txHash ?? null,
+      explorerUrl: escrow.explorerUrl ?? null,
     });
   }
 }

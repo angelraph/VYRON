@@ -1,8 +1,10 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingStatus } from "@/components/dashboard/loading-status";
 
 export default function TasksLoading() {
   return (
     <div>
+      <LoadingStatus label="Compiling every task across your goals..." />
       <div className="mb-6 space-y-2">
         <Skeleton className="h-8 w-32" />
         <Skeleton className="h-4 w-80" />

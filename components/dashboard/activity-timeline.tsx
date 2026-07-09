@@ -12,6 +12,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { TxLink } from "@/components/dashboard/tx-link";
 import { formatRelativeTime } from "@/lib/format";
 import type { ActivityEvent } from "@/lib/types";
 
@@ -75,6 +76,7 @@ export function ActivityTimeline({ events }: { events: ActivityEvent[] }) {
                   <p className="text-muted-foreground text-xs">
                     {formatRelativeTime(event.createdAt)}
                   </p>
+                  <TxLink txHash={event.txHash} explorerUrl={event.explorerUrl} />
                 </div>
               );
             })}

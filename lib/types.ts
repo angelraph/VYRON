@@ -13,6 +13,11 @@ export interface Agent {
   etaHours: number;
   availability: AgentAvailability;
   joinedAt: string;
+  /** On-chain payout address, if this agent has been registered with a
+   * real wallet. Required for the xlayer escrow provider to pay them —
+   * absent, escrow fails loudly rather than sending real funds to an
+   * address nobody controls. */
+  walletAddress?: string | null;
 }
 
 export type GoalStatus = "planning" | "in_progress" | "completed";
@@ -69,6 +74,11 @@ export interface EscrowTransaction {
   status: EscrowStatus;
   createdAt: string;
   releasedAt: string | null;
+  /** Real on-chain transaction hash — absent/null under the simulated
+   * provider, set once a real on-chain provider confirms the transaction. */
+  txHash?: string | null;
+  /** Block explorer URL for `txHash`, when there is one. */
+  explorerUrl?: string | null;
 }
 
 export type ActivityEventType =
@@ -90,6 +100,9 @@ export interface ActivityEvent {
   createdAt: string;
   goalId: string | null;
   agentId: string | null;
+  /** Set only for escrow events settled by a real on-chain provider. */
+  txHash?: string | null;
+  explorerUrl?: string | null;
 }
 
 export interface DashboardStats {

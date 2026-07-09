@@ -17,11 +17,24 @@ const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
  * still work via their injected/SDK connectors with zero config. */
 export const isWalletConnectConfigured = Boolean(walletConnectProjectId);
 
+/** viem's built-in `xLayerTestnet` chain points its default RPC at
+ * xlayertestrpc.okx.com, which doesn't resolve from some networks
+ * (confirmed in this environment). testrpc.xlayer.tech resolves to the
+ * same chain (1952) and is used as the default; override via
+ * NEXT_PUBLIC_XLAYER_RPC_URL if your network needs a different endpoint. */
+export const xLayerRpcUrl =
+  process.env.NEXT_PUBLIC_XLAYER_RPC_URL ?? "https://testrpc.xlayer.tech";
+
 export const wagmiConfig = createConfig({
   chains: [xLayerTestnet],
   ssr: true,
+  // wagmi auto-discovers every EIP-6963-announced injected wallet (Phantom's
+  // EVM provider, a second OKX entry alongside the one below, etc.) and adds
+  // one connector per provider unless this is disabled. VYRON only wants the
+  // three connectors explicitly listed below.
+  multiInjectedProviderDiscovery: false,
   transports: {
-    [xLayerTestnet.id]: http(),
+    [xLayerTestnet.id]: http(xLayerRpcUrl),
   },
   connectors: [
     injected({ target: "okxWallet" }),

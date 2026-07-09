@@ -6,6 +6,7 @@ import {
   useBalance,
   useConnect,
   useConnection,
+  useConnections,
   useConnectors,
   useDisconnect,
   useSwitchChain,
@@ -38,6 +39,7 @@ export function WalletConnect({
 }) {
   const { address, isConnected, chainId } = useConnection();
   const connectors = useConnectors();
+  const activeConnector = useConnections()[0]?.connector;
   const { mutate: connect, isPending: isConnecting, variables } = useConnect();
   const { mutate: disconnect } = useDisconnect();
   const { mutate: switchChain, isPending: isSwitching } = useSwitchChain();
@@ -48,6 +50,9 @@ export function WalletConnect({
   });
 
   const wrongNetwork = isConnected && chainId !== xLayerTestnet.id;
+  const walletLabel = activeConnector
+    ? (CONNECTOR_LABELS[activeConnector.id] ?? activeConnector.name)
+    : "Wallet";
 
   useEffect(() => {
     saveWalletAddressAction(address ?? null).catch(() => {
@@ -102,10 +107,23 @@ export function WalletConnect({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium">{address && truncate(address)}</p>
-          <p className="text-muted-foreground text-xs">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="bg-muted flex size-9 shrink-0 items-center justify-center rounded-full">
+            <Wallet className="text-violet size-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{walletLabel}</p>
+            <p className="text-muted-foreground truncate text-xs">
+              {address && truncate(address)}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1">
+          <Badge variant={wrongNetwork ? "destructive" : "secondary"}>
+            {wrongNetwork ? "Wrong network" : xLayerTestnet.name}
+          </Badge>
+          <p className="text-muted-foreground text-xs whitespace-nowrap">
             {isBalanceLoading
               ? "Loading balance..."
               : balance
@@ -113,9 +131,6 @@ export function WalletConnect({
                 : "—"}
           </p>
         </div>
-        <Badge variant={wrongNetwork ? "destructive" : "secondary"}>
-          {wrongNetwork ? "Wrong network" : xLayerTestnet.name}
-        </Badge>
       </div>
 
       {wrongNetwork && (
@@ -123,6 +138,7 @@ export function WalletConnect({
           variant="outline"
           size="sm"
           disabled={isSwitching}
+          className="w-full sm:w-fit"
           onClick={() => switchChain({ chainId: xLayerTestnet.id })}
         >
           {isSwitching ? (
@@ -138,7 +154,7 @@ export function WalletConnect({
         variant="outline"
         size="sm"
         onClick={() => disconnect()}
-        className="w-fit"
+        className="w-full sm:w-fit"
       >
         <LogOut className="size-4" />
         Disconnect

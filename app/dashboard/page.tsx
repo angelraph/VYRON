@@ -3,10 +3,12 @@ import { CheckCircle2, Clock, Plus, Target, TrendingUp, Wallet } from "lucide-re
 import { getCurrentUser } from "@/lib/auth";
 import {
   getActivityEvents,
-  getDashboardStats,
+  getAgents,
+  getEscrowTransactionsForTasks,
   getGoals,
   getWorkflowTasksByGoal,
 } from "@/lib/db";
+import { computeDashboardStats } from "@/lib/view-models";
 import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,14 +22,16 @@ import { LiveRefresh } from "@/components/shared/live-refresh";
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
-  const [goals, stats, activity] = await Promise.all([
+  const [goals, agents, activity] = await Promise.all([
     getGoals(user.id),
-    getDashboardStats(user.id),
+    getAgents(),
     getActivityEvents(user.id, 6),
   ]);
   const goalTasks = await Promise.all(
     goals.map((goal) => getWorkflowTasksByGoal(goal.id)),
   );
+  const escrowTxs = await getEscrowTransactionsForTasks(goalTasks.flat());
+  const stats = computeDashboardStats(goals, goalTasks, escrowTxs, agents);
 
   return (
     <div>

@@ -41,8 +41,8 @@ export function getIntegrationStatuses(): IntegrationStatus[] {
       configured: process.env.ESCROW_PROVIDER === "xlayer",
       description:
         process.env.ESCROW_PROVIDER === "xlayer"
-          ? "Settling through the X Layer escrow provider."
-          : "Simulated escrow — the X Layer provider interface is wired but not yet live.",
+          ? "Settling with real transactions on X Layer Testnet."
+          : "Simulated escrow — the X Layer provider is fully built (contracts, tests, integration) but not yet deployed/activated.",
     },
   ];
 }

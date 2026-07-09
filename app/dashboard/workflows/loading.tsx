@@ -1,8 +1,10 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingStatus } from "@/components/dashboard/loading-status";
 
 export default function WorkflowsLoading() {
   return (
     <div>
+      <LoadingStatus label="Checking in on every goal VYRON is executing..." />
       <div className="mb-6 flex items-center justify-between">
         <div className="space-y-2">
           <Skeleton className="h-8 w-40" />

@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { GOAL_STATUS_LABEL, formatCurrency } from "@/lib/format";
+import { describeGoalProgress } from "@/lib/view-models";
 import type { Goal, WorkflowTask } from "@/lib/types";
 
 const STATUS_VARIANT: Record<Goal["status"], "secondary" | "default" | "outline"> = {
@@ -26,9 +27,12 @@ export function GoalCard({ goal, tasks }: { goal: Goal; tasks: WorkflowTask[] })
               {GOAL_STATUS_LABEL[goal.status]}
             </Badge>
           </div>
+          <p className="text-foreground/80 truncate text-xs">
+            {describeGoalProgress(tasks)}
+          </p>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>
-              {done}/{total} tasks complete
+              {done}/{total} tasks delivered
             </span>
             <span>{formatCurrency(goal.budget)} budget</span>
           </div>

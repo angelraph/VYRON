@@ -4,6 +4,10 @@ export interface EscrowLockParams {
   taskId: string;
   agentId: string;
   amount: number;
+  /** The agent's on-chain payout address, resolved by the caller (avoids
+   * a circular import back into the data layer). Only the xlayer provider
+   * needs this — it fails loudly if a real lock is attempted without one. */
+  agentWalletAddress?: string | null;
 }
 
 export interface EscrowResult {
@@ -14,6 +18,12 @@ export interface EscrowResult {
   status: EscrowStatus;
   createdAt: string;
   releasedAt: string | null;
+  /** Real on-chain transaction hash for this state change — absent under
+   * the simulated provider. Presence implies the transaction was
+   * confirmed; providers only return after waiting for the receipt. */
+  txHash?: string | null;
+  /** Block explorer URL for `txHash`, when there is one. */
+  explorerUrl?: string | null;
 }
 
 /** The seam between the execution pipeline and however funds actually move.

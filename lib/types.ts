@@ -116,4 +116,7 @@ export interface UserPreferences {
   timezone: string | null;
   preferredStack: string | null;
   favoriteAgentIds: string[];
+  /** The last wallet address the user connected — persisted so it's known
+   * even before the browser's wallet extension reconnects. */
+  walletAddress: string | null;
 }

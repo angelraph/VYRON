@@ -15,6 +15,7 @@ model User {
   budget           Int?
   timezone         String?
   preferredStack   String?
+  walletAddress    String?
   favoriteAgentIds String[]        @default([])
   goals            Goal[]
   agentAffinities  AgentAffinity[]

@@ -405,6 +405,7 @@ export async function getUserPreferences(userId: string): Promise<UserPreference
     timezone: user?.timezone ?? null,
     preferredStack: user?.preferredStack ?? null,
     favoriteAgentIds: user?.favoriteAgentIds ?? [],
+    walletAddress: user?.walletAddress ?? null,
   };
 }
 
@@ -429,6 +430,7 @@ export async function updateUserPreferences(
       timezone: patch.timezone,
       preferredStack: patch.preferredStack,
       favoriteAgentIds: patch.favoriteAgentIds,
+      walletAddress: patch.walletAddress,
     },
   });
   return {
@@ -437,6 +439,7 @@ export async function updateUserPreferences(
     timezone: updated.timezone,
     preferredStack: updated.preferredStack,
     favoriteAgentIds: updated.favoriteAgentIds,
+    walletAddress: updated.walletAddress,
   };
 }
 

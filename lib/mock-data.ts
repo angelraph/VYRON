@@ -16,6 +16,7 @@ export const MOCK_USER_PREFERENCES: UserPreferences = {
   timezone: "UTC",
   preferredStack: "Next.js, Solidity",
   favoriteAgentIds: ["agt-atlas-research", "agt-ledger-forge"],
+  walletAddress: null,
 };
 
 export const MOCK_AGENTS: Agent[] = [

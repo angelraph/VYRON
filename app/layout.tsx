@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider } from "@/components/shared/auth-provider";
+import { Web3Provider } from "@/components/shared/web3-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -44,10 +46,14 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} dark h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <TooltipProvider delayDuration={150}>
-          {children}
-          <Toaster richColors theme="dark" position="bottom-right" />
-        </TooltipProvider>
+        <AuthProvider>
+          <Web3Provider>
+            <TooltipProvider delayDuration={150}>
+              {children}
+              <Toaster richColors theme="dark" position="bottom-right" />
+            </TooltipProvider>
+          </Web3Provider>
+        </AuthProvider>
       </body>
     </html>
   );

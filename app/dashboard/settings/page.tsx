@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { IntegrationStatusCard } from "@/components/settings/integration-status";
-import { WalletConnectButton } from "@/components/settings/wallet-connect-button";
+import { WalletConnect } from "@/components/settings/wallet-connect-button";
 import { PreferencesForm } from "@/components/settings/preferences-form";
 
 export default async function SettingsPage() {
@@ -50,10 +50,11 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent className="px-5">
               <p className="text-muted-foreground mb-4 text-sm">
-                VYRON settles escrow on the OKX X Layer. This demo simulates
-                wallet connection and settlement end to end.
+                Connect a wallet on X Layer Testnet. Escrow settlement itself
+                is still simulated — this is the real wallet layer it will
+                settle through.
               </p>
-              <WalletConnectButton />
+              <WalletConnect persistedAddress={preferences.walletAddress} />
             </CardContent>
           </Card>
 

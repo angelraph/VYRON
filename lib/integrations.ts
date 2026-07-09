@@ -1,6 +1,5 @@
 import "server-only";
 import { isClerkConfigured } from "@/lib/auth-config";
-import { isDatabaseConfigured } from "@/lib/db";
 
 export interface IntegrationStatus {
   key: string;
@@ -10,6 +9,7 @@ export interface IntegrationStatus {
 }
 
 export function getIntegrationStatuses(): IntegrationStatus[] {
+  const isDatabaseConfigured = Boolean(process.env.DATABASE_URL);
   return [
     {
       key: "clerk",
@@ -25,7 +25,7 @@ export function getIntegrationStatuses(): IntegrationStatus[] {
       configured: isDatabaseConfigured,
       description: isDatabaseConfigured
         ? "Reading and writing to your Postgres database."
-        : "Serving seeded demo data — no database connected.",
+        : "DATABASE_URL is not set — the app cannot read or write any data.",
     },
     {
       key: "ai",

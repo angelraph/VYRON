@@ -1,8 +1,5 @@
 import "server-only";
-import { mockStore } from "@/lib/mock-store";
 import type { EscrowLockParams, EscrowProvider, EscrowResult } from "@/lib/escrow/provider";
-
-const isDatabaseConfigured = Boolean(process.env.DATABASE_URL);
 
 async function getPrisma() {
   const { PrismaClient } = await import("@prisma/client");
@@ -26,59 +23,32 @@ export const simulatedEscrowProvider: EscrowProvider = {
   name: "simulated",
 
   async lock({ taskId, agentId, amount }: EscrowLockParams): Promise<EscrowResult> {
-    const tx: EscrowResult = {
-      id: newId("escrow"),
-      taskId,
-      agentId,
-      amount,
-      status: "locked",
-      createdAt: new Date().toISOString(),
-      releasedAt: null,
-    };
-
-    if (!isDatabaseConfigured) {
-      mockStore.escrow.push(tx);
-      return tx;
-    }
-
+    const id = newId("escrow");
     const prisma = await getPrisma();
-    await prisma.escrowTransaction.create({
-      data: { id: tx.id, taskId, agentId, amount, status: "locked" },
+    const tx = await prisma.escrowTransaction.create({
+      data: { id, taskId, agentId, amount, status: "locked" },
     });
-    return tx;
+    return {
+      ...tx,
+      createdAt: tx.createdAt.toISOString(),
+      releasedAt: tx.releasedAt ? tx.releasedAt.toISOString() : null,
+    };
   },
 
   async release(escrowId: string): Promise<EscrowResult> {
-    const releasedAt = new Date().toISOString();
-
-    if (!isDatabaseConfigured) {
-      const tx = mockStore.escrow.find((entry) => entry.id === escrowId);
-      if (!tx) throw new Error(`Escrow transaction ${escrowId} not found`);
-      tx.status = "released";
-      tx.releasedAt = releasedAt;
-      return tx;
-    }
-
     const prisma = await getPrisma();
     const updated = await prisma.escrowTransaction.update({
       where: { id: escrowId },
-      data: { status: "released", releasedAt: new Date(releasedAt) },
+      data: { status: "released", releasedAt: new Date() },
     });
     return {
       ...updated,
       createdAt: updated.createdAt.toISOString(),
-      releasedAt: updated.releasedAt?.toISOString() ?? releasedAt,
+      releasedAt: updated.releasedAt ? updated.releasedAt.toISOString() : null,
     };
   },
 
   async refund(escrowId: string): Promise<EscrowResult> {
-    if (!isDatabaseConfigured) {
-      const tx = mockStore.escrow.find((entry) => entry.id === escrowId);
-      if (!tx) throw new Error(`Escrow transaction ${escrowId} not found`);
-      tx.status = "refunded";
-      return tx;
-    }
-
     const prisma = await getPrisma();
     const updated = await prisma.escrowTransaction.update({
       where: { id: escrowId },
@@ -87,7 +57,7 @@ export const simulatedEscrowProvider: EscrowProvider = {
     return {
       ...updated,
       createdAt: updated.createdAt.toISOString(),
-      releasedAt: updated.releasedAt?.toISOString() ?? null,
+      releasedAt: updated.releasedAt ? updated.releasedAt.toISOString() : null,
     };
   },
 };

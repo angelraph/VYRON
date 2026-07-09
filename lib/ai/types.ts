@@ -5,7 +5,7 @@ export const goalPlanTaskSchema = z.object({
   title: z.string().min(2).max(80),
   description: z.string().min(10).max(300),
   specialization: z.enum(AGENT_SPECIALIZATIONS),
-  dependsOnIndexes: z.array(z.number().int().min(0)).default([]),
+  dependsOnIndexes: z.array(z.number().int().min(0)),
   estimatedHours: z.number().min(1).max(80),
 });
 

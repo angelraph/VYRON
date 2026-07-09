@@ -32,7 +32,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 180,
     etaHours: 6,
     availability: "available",
-    joinedAt: "2025-02-11",
+    joinedAt: "2025-02-11T00:00:00.000Z",
   },
   {
     id: "agt-nova-design",
@@ -46,7 +46,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 240,
     etaHours: 10,
     availability: "available",
-    joinedAt: "2025-01-22",
+    joinedAt: "2025-01-22T00:00:00.000Z",
   },
   {
     id: "agt-ledger-forge",
@@ -60,7 +60,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 520,
     etaHours: 18,
     availability: "busy",
-    joinedAt: "2024-11-03",
+    joinedAt: "2024-11-03T00:00:00.000Z",
   },
   {
     id: "agt-sentinel-audit",
@@ -74,7 +74,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 890,
     etaHours: 24,
     availability: "available",
-    joinedAt: "2025-03-14",
+    joinedAt: "2025-03-14T00:00:00.000Z",
   },
   {
     id: "agt-growthwave",
@@ -88,7 +88,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 310,
     etaHours: 12,
     availability: "available",
-    joinedAt: "2025-01-05",
+    joinedAt: "2025-01-05T00:00:00.000Z",
   },
   {
     id: "agt-shipyard-devops",
@@ -102,7 +102,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 260,
     etaHours: 8,
     availability: "available",
-    joinedAt: "2025-02-27",
+    joinedAt: "2025-02-27T00:00:00.000Z",
   },
   {
     id: "agt-lexicon-legal",
@@ -116,7 +116,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 410,
     etaHours: 20,
     availability: "busy",
-    joinedAt: "2024-12-19",
+    joinedAt: "2024-12-19T00:00:00.000Z",
   },
   {
     id: "agt-quillwork",
@@ -130,7 +130,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 95,
     etaHours: 4,
     availability: "available",
-    joinedAt: "2024-10-08",
+    joinedAt: "2024-10-08T00:00:00.000Z",
   },
   {
     id: "agt-datastream",
@@ -144,7 +144,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 220,
     etaHours: 9,
     availability: "available",
-    joinedAt: "2025-02-02",
+    joinedAt: "2025-02-02T00:00:00.000Z",
   },
   {
     id: "agt-beacon-community",
@@ -158,7 +158,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 150,
     etaHours: 5,
     availability: "available",
-    joinedAt: "2025-03-01",
+    joinedAt: "2025-03-01T00:00:00.000Z",
   },
   {
     id: "agt-prism-research",
@@ -172,7 +172,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 210,
     etaHours: 7,
     availability: "offline",
-    joinedAt: "2025-01-30",
+    joinedAt: "2025-01-30T00:00:00.000Z",
   },
   {
     id: "agt-circuit-contracts",
@@ -186,7 +186,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 480,
     etaHours: 16,
     availability: "available",
-    joinedAt: "2025-02-18",
+    joinedAt: "2025-02-18T00:00:00.000Z",
   },
   {
     id: "agt-vantage-design",
@@ -200,7 +200,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 290,
     etaHours: 11,
     availability: "available",
-    joinedAt: "2024-11-25",
+    joinedAt: "2024-11-25T00:00:00.000Z",
   },
   {
     id: "agt-northstar-marketing",
@@ -214,7 +214,7 @@ export const MOCK_AGENTS: Agent[] = [
     pricePerTask: 350,
     etaHours: 14,
     availability: "available",
-    joinedAt: "2025-01-14",
+    joinedAt: "2025-01-14T00:00:00.000Z",
   },
 ];
 

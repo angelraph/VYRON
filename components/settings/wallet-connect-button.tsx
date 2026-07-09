@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { xLayerTestnet } from "@/lib/web3/config";
+import { describeWalletError } from "@/lib/web3/errors";
 import { saveWalletAddressAction } from "@/lib/actions/wallet";
 
 const CONNECTOR_LABELS: Record<string, string> = {
@@ -69,24 +70,22 @@ export function WalletConnect({
             variant="outline"
             className="justify-start"
             disabled={isConnecting}
-            onClick={() =>
+            onClick={() => {
+              const label = CONNECTOR_LABELS[connector.id] ?? connector.name;
               connect(
-                { connector },
+                { connector, chainId: xLayerTestnet.id },
                 {
                   onError: (error) => {
-                    toast.error(
-                      `Couldn't connect ${CONNECTOR_LABELS[connector.id] ?? connector.name}`,
-                      { description: error.message },
-                    );
+                    toast.error(`Couldn't connect ${label}`, {
+                      description: describeWalletError(error, label),
+                    });
                   },
                   onSuccess: () => {
-                    toast.success(
-                      `${CONNECTOR_LABELS[connector.id] ?? connector.name} connected`,
-                    );
+                    toast.success(`${label} connected`);
                   },
                 },
-              )
-            }
+              );
+            }}
           >
             {isConnecting && variables?.connector === connector ? (
               <Loader2 className="size-4 animate-spin" />
@@ -139,7 +138,21 @@ export function WalletConnect({
           size="sm"
           disabled={isSwitching}
           className="w-full sm:w-fit"
-          onClick={() => switchChain({ chainId: xLayerTestnet.id })}
+          onClick={() =>
+            switchChain(
+              { chainId: xLayerTestnet.id },
+              {
+                onError: (error) => {
+                  toast.error(`Couldn't switch to ${xLayerTestnet.name}`, {
+                    description: describeWalletError(error, walletLabel),
+                  });
+                },
+                onSuccess: () => {
+                  toast.success(`Switched to ${xLayerTestnet.name}`);
+                },
+              },
+            )
+          }
         >
           {isSwitching ? (
             <Loader2 className="size-4 animate-spin" />

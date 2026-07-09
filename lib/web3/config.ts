@@ -1,5 +1,6 @@
 import { createConfig, http } from "wagmi";
 import { xLayerTestnet } from "viem/chains";
+import type { EIP1193Provider } from "viem";
 // Imported from their specific subpaths rather than the `wagmi/connectors`
 // barrel — that barrel re-exports a `tempoWallet` connector whose internal
 // module has a broken import in this wagmi release, which breaks the whole
@@ -9,6 +10,40 @@ import { metaMask } from "wagmi/connectors/metaMask";
 import { walletConnect } from "wagmi/connectors/walletConnect";
 
 export { xLayerTestnet };
+
+type FlaggedProvider = EIP1193Provider & {
+  isOkxWallet?: true;
+  providers?: FlaggedProvider[];
+};
+
+/** wagmi's `injected()` resolves a wallet by name (e.g. `target: "okxWallet"`)
+ * through a small built-in map covering MetaMask, Coinbase, and Phantom —
+ * OKX isn't in that map. This target follows the exact same pattern wagmi
+ * uses for those built-in wallets (see its `phantom` target: check the
+ * wallet's own global first, then the shared multi-provider array), just
+ * pointed at OKX's actual injection points:
+ *  - OKX Wallet's EIP-1193 provider lives at `window.okxwallet.ethereum`
+ *    (a nested property — `window.okxwallet` itself is not the provider).
+ *  - When OKX registers into the shared `window.ethereum.providers` array
+ *    instead (some multi-wallet browser setups), its entry sets
+ *    `isOkxWallet: true`.
+ * Checking `window.okxwallet.ethereum` first (and not relying solely on the
+ * shared array) is what lets this work when another extension, like
+ * MetaMask, has also claimed `window.ethereum` — that MetaMask connector is
+ * unaffected since it targets its own `isMetaMask` flag independently. */
+function okxWalletProvider(window?: {
+  okxwallet?: { ethereum?: FlaggedProvider };
+  ethereum?: FlaggedProvider;
+}) {
+  if (window?.okxwallet?.ethereum) return window.okxwallet.ethereum;
+
+  const ethereum = window?.ethereum;
+  if (ethereum?.providers) {
+    return ethereum.providers.find((provider) => provider.isOkxWallet);
+  }
+  if (ethereum?.isOkxWallet) return ethereum;
+  return undefined;
+}
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 
@@ -37,7 +72,13 @@ export const wagmiConfig = createConfig({
     [xLayerTestnet.id]: http(xLayerRpcUrl),
   },
   connectors: [
-    injected({ target: "okxWallet" }),
+    injected({
+      target: {
+        id: "okxWallet",
+        name: "OKX Wallet",
+        provider: okxWalletProvider,
+      },
+    }),
     metaMask({ dappMetadata: { name: "VYRON", url: "https://vyron.ai" } }),
     ...(walletConnectProjectId
       ? [

@@ -6,7 +6,8 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { KanbanBoard } from "@/components/dashboard/kanban-board";
 import { WorkflowGraphLazy } from "@/components/dashboard/workflow-graph-lazy";
 import { LiveRefresh } from "@/components/shared/live-refresh";
-import { getAgents, getGoalById, getWorkflowTasksByGoal } from "@/lib/db";
+import { getAgents, getGoalForUser, getWorkflowTasksByGoal } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
 import { GOAL_STATUS_LABEL, formatCurrency } from "@/lib/format";
 import { describeGoalProgress } from "@/lib/view-models";
 
@@ -17,12 +18,14 @@ export default async function WorkflowDetailPage({
 }) {
   const { goalId } = await params;
 
-  const [goal, tasks, agents] = await Promise.all([
-    getGoalById(goalId),
+  const user = await getCurrentUser();
+  const goal = await getGoalForUser(goalId, user.id);
+  if (!goal) notFound();
+
+  const [tasks, agents] = await Promise.all([
     getWorkflowTasksByGoal(goalId),
     getAgents(),
   ]);
-  if (!goal) notFound();
 
   const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
 

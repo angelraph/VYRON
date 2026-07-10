@@ -2,6 +2,9 @@ import "server-only";
 import { AGENT_SPECIALIZATIONS } from "@/lib/constants";
 import { goalPlanSchema, type GoalPlan } from "@/lib/ai/types";
 import { mockInterpretGoal } from "@/lib/ai/mock-planner";
+import { logger } from "@/lib/logger";
+
+const MODEL_NAME = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
 /** Decomposes one high-level goal into a dependency-ordered workflow. Uses a
  * live model via the Vercel AI SDK when configured; otherwise falls back to
@@ -9,16 +12,22 @@ import { mockInterpretGoal } from "@/lib/ai/mock-planner";
  * works fully offline. */
 export async function interpretGoal(goalTitle: string): Promise<GoalPlan> {
   if (!process.env.OPENAI_API_KEY) {
+    logger.warn("goal_interpretation", {
+      stage: "intent_analysis",
+      outcome: "fallback",
+      reason: "OPENAI_API_KEY not configured",
+    });
     return mockInterpretGoal(goalTitle);
   }
 
+  const startedAt = Date.now();
   try {
     const { openai } = await import("@ai-sdk/openai");
-    const { generateObject } = await import("ai");
+    const { generateText, Output } = await import("ai");
 
-    const { object } = await generateObject({
-      model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
-      schema: goalPlanSchema,
+    const { output } = await generateText({
+      model: openai(MODEL_NAME),
+      output: Output.object({ schema: goalPlanSchema }),
       prompt: [
         `Decompose this goal into a dependency-ordered workflow of 3-6 executable tasks`,
         `for an autonomous agent marketplace. Goal: "${goalTitle}".`,
@@ -32,12 +41,23 @@ export async function interpretGoal(goalTitle: string): Promise<GoalPlan> {
       ].join(" "),
     });
 
-    return object;
+    logger.info("goal_interpretation", {
+      stage: "intent_analysis",
+      model: MODEL_NAME,
+      durationMs: Date.now() - startedAt,
+      outcome: "success",
+      category: output.category,
+    });
+
+    return output;
   } catch (error) {
-    console.error(
-      "Goal interpreter model call failed, falling back to heuristic planner",
-      error,
-    );
+    logger.error("goal_interpretation", {
+      stage: "intent_analysis",
+      model: MODEL_NAME,
+      durationMs: Date.now() - startedAt,
+      outcome: "fallback",
+      error: error instanceof Error ? error.message : String(error),
+    });
     return mockInterpretGoal(goalTitle);
   }
 }

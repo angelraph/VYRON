@@ -13,7 +13,10 @@ import type {
 } from "@/lib/types";
 import { getEscrowProvider } from "@/lib/escrow";
 
-async function getPrisma() {
+/** Exported so `/api/health` can run a real connectivity check against the
+ * same singleton client the rest of the app uses, rather than spinning up
+ * a second one. */
+export async function getPrisma() {
   const { PrismaClient } = await import("@prisma/client");
   const globalForPrisma = globalThis as unknown as {
     prisma?: InstanceType<typeof PrismaClient>;
@@ -88,9 +91,24 @@ export async function getGoals(userId: string): Promise<Goal[]> {
   }));
 }
 
+/** Unscoped by design — only for internal system code (the autonomous
+ * monitor, replanning) that legitimately operates across every user's
+ * goals. Never call this with a user-supplied id on a request path; use
+ * `getGoalForUser` there instead. */
 export async function getGoalById(id: string): Promise<Goal | null> {
   const prisma = await getPrisma();
   const goal = await prisma.goal.findUnique({ where: { id } });
+  return goal ? { ...goal, createdAt: goal.createdAt.toISOString() } : null;
+}
+
+/** The authorization-checked read for any request path that takes a goal
+ * id from user input (route params, form data, etc.). Returns null both
+ * when the goal doesn't exist and when it belongs to someone else —
+ * deliberately indistinguishable, so this can't be used to enumerate
+ * other users' goal ids. */
+export async function getGoalForUser(id: string, userId: string): Promise<Goal | null> {
+  const prisma = await getPrisma();
+  const goal = await prisma.goal.findFirst({ where: { id, userId } });
   return goal ? { ...goal, createdAt: goal.createdAt.toISOString() } : null;
 }
 
@@ -263,6 +281,60 @@ export async function markGoalCompleted(goalId: string): Promise<void> {
     where: { id: goalId },
     data: { status: "completed" },
   });
+}
+
+/** Terminal failure state for escrow the monitor has given up retrying —
+ * an existing, previously-unused `EscrowStatus` value, so this needs no
+ * schema change. Surfaces stuck work for human review instead of silently
+ * stalling forever or fabricating a settlement. */
+export async function disputeEscrow(escrowId: string): Promise<void> {
+  const prisma = await getPrisma();
+  await prisma.escrowTransaction.update({
+    where: { id: escrowId },
+    data: { status: "disputed" },
+  });
+}
+
+/** The most recent real deliverable recorded for a task, parsed back out of
+ * the `ActivityEvent` log. There is no dedicated output column — the
+ * `task_delivered` event's message IS the deliverable's storage, tagged
+ * with the task's own title (matched via `contains`, not an exact id, so a
+ * reassigned task's new delivery is still found regardless of which agent
+ * produced it). Returns null if this task hasn't been executed yet. */
+export async function getLatestDelivery(
+  task: Pick<WorkflowTask, "id" | "goalId" | "title">,
+): Promise<{ summary: string; deliverable: string } | null> {
+  const { parseDeliveryMessage, deliveryMessageMatchesTask } = await import(
+    "@/lib/ai/delivery-format"
+  );
+  const prisma = await getPrisma();
+  const events = await prisma.activityEvent.findMany({
+    where: { goalId: task.goalId, type: "task_delivered" },
+    orderBy: { createdAt: "desc" },
+  });
+  const event = events.find((e) => deliveryMessageMatchesTask(e.message, task.title));
+  return event ? parseDeliveryMessage(event.message, task.title) : null;
+}
+
+/** Real outputs already delivered for a task's dependencies — the context
+ * the executor uses so downstream work genuinely builds on upstream
+ * content instead of being generated in isolation. Dependencies with no
+ * recorded delivery yet (shouldn't happen once dependency ordering is
+ * respected) are simply omitted rather than blocking execution. */
+export async function getDependencyDeliverables(
+  task: WorkflowTask,
+): Promise<{ taskTitle: string; deliverable: string }[]> {
+  if (task.dependsOn.length === 0) return [];
+  const prisma = await getPrisma();
+  const depTasks = await prisma.workflowTask.findMany({
+    where: { id: { in: task.dependsOn } },
+  });
+  const results: { taskTitle: string; deliverable: string }[] = [];
+  for (const dep of depTasks) {
+    const delivery = await getLatestDelivery({ id: dep.id, goalId: dep.goalId, title: dep.title });
+    if (delivery) results.push({ taskTitle: dep.title, deliverable: delivery.deliverable });
+  }
+  return results;
 }
 
 // ---------------------------------------------------------------------------

@@ -13,10 +13,15 @@ export async function register() {
   globalThis.__vyronMonitorStarted = true;
 
   const { runMonitorTick } = await import("@/lib/monitor");
+  const { logger } = await import("@/lib/logger");
 
   setInterval(() => {
     runMonitorTick().catch((error) => {
-      console.error("VYRON monitor tick failed", error);
+      logger.error("monitor_tick", {
+        stage: "monitor_tick",
+        outcome: "failure",
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
   }, TICK_INTERVAL_MS);
 }

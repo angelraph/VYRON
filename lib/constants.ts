@@ -29,6 +29,7 @@ export const DASHBOARD_NAV_LINKS: {
 }[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "New Goal", href: "/dashboard/new-goal", icon: Plus },
+  { label: "Security Scan", href: "/dashboard/security-scan", icon: ShieldCheck },
   { label: "Workflows", href: "/dashboard/workflows", icon: Workflow },
   { label: "Marketplace", href: "/dashboard/marketplace", icon: Store },
   { label: "Agents", href: "/dashboard/agents", icon: Users },

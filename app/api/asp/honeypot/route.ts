@@ -14,7 +14,26 @@ const execFileAsync = promisify(execFile);
  * `outputFileTracingIncludes` (next.config.ts) bundles it into this route's
  * function. Local dev keeps using the PATH-installed binary. */
 const BUNDLED_BINARY = path.join(process.cwd(), "bin", "onchainos");
-const ONCHAINOS_BIN = existsSync(BUNDLED_BINARY) ? BUNDLED_BINARY : "onchainos";
+const IS_BUNDLED = existsSync(BUNDLED_BINARY);
+const ONCHAINOS_BIN = IS_BUNDLED ? BUNDLED_BINARY : "onchainos";
+
+/** Only /tmp is writable in Vercel's Lambda sandbox — `/var/task` (where the
+ * bundled binary lives) is read-only, so onchainos's own config/session dir
+ * has to be redirected there via ONCHAINOS_HOME. Local dev already has a
+ * persisted email-login session under the real $HOME, so this is skipped
+ * there; instead the bundled path does a silent API-Key login (OKX_API_KEY /
+ * OKX_SECRET_KEY / OKX_PASSPHRASE env vars) before every scan, since a fresh
+ * Lambda container has no prior session to reuse. */
+const ONCHAINOS_ENV = IS_BUNDLED
+  ? { ...process.env, ONCHAINOS_HOME: "/tmp/.onchainos" }
+  : process.env;
+
+let bundledLoginDone = false;
+async function ensureBundledLogin(): Promise<void> {
+  if (!IS_BUNDLED || bundledLoginDone) return;
+  await execFileAsync(ONCHAINOS_BIN, ["wallet", "login"], { env: ONCHAINOS_ENV });
+  bundledLoginDone = true;
+}
 
 /** Fulfillment bridge for the "Honeypot & Rug Risk Scanner" ASP service
  * registered on OKX.AI (agent #4962). Orders arrive over OKX's A2A channel,
@@ -60,12 +79,12 @@ async function fetchRealTokenRisk(
   contractAddress: string,
   chainId: string,
 ): Promise<TokenScanResult | null> {
-  const { stdout } = await execFileAsync(ONCHAINOS_BIN, [
-    "security",
-    "token-scan",
-    "--tokens",
-    `${chainId}:${contractAddress}`,
-  ]);
+  await ensureBundledLogin();
+  const { stdout } = await execFileAsync(
+    ONCHAINOS_BIN,
+    ["security", "token-scan", "--tokens", `${chainId}:${contractAddress}`],
+    { env: ONCHAINOS_ENV },
+  );
   const parsed = JSON.parse(stdout) as { ok: boolean; data: TokenScanResult[] };
   if (!parsed.ok || parsed.data.length === 0) return null;
   return parsed.data[0];

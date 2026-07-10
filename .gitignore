@@ -46,3 +46,6 @@ next-env.d.ts
 /.agents/
 /.claude/skills/
 skills-lock.json
+
+# onchainos Linux binary, fetched+verified at build time (scripts/fetch-onchainos.mjs)
+/bin/

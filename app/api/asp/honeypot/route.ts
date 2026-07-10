@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { fulfillAdHocTask } from "@/lib/engine/executor";
@@ -6,6 +8,13 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 
 const execFileAsync = promisify(execFile);
+
+/** Vercel's build has no `onchainos` on PATH — `scripts/fetch-onchainos.mjs`
+ * downloads a verified Linux binary to `bin/onchainos` at build time and
+ * `outputFileTracingIncludes` (next.config.ts) bundles it into this route's
+ * function. Local dev keeps using the PATH-installed binary. */
+const BUNDLED_BINARY = path.join(process.cwd(), "bin", "onchainos");
+const ONCHAINOS_BIN = existsSync(BUNDLED_BINARY) ? BUNDLED_BINARY : "onchainos";
 
 /** Fulfillment bridge for the "Honeypot & Rug Risk Scanner" ASP service
  * registered on OKX.AI (agent #4962). Orders arrive over OKX's A2A channel,
@@ -51,7 +60,7 @@ async function fetchRealTokenRisk(
   contractAddress: string,
   chainId: string,
 ): Promise<TokenScanResult | null> {
-  const { stdout } = await execFileAsync("onchainos", [
+  const { stdout } = await execFileAsync(ONCHAINOS_BIN, [
     "security",
     "token-scan",
     "--tokens",

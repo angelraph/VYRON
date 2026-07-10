@@ -96,10 +96,16 @@ export async function POST(request: Request) {
   try {
     riskData = await fetchRealTokenRisk(contractAddress, chainId);
   } catch (error) {
+    const execError = error as NodeJS.ErrnoException & { code?: number | string; signal?: string; stderr?: string; stdout?: string };
     logger.error("asp_fulfillment", {
       stage: "honeypot_scan",
       outcome: "failure",
       error: error instanceof Error ? error.message : String(error),
+      errCode: execError?.code,
+      errSignal: execError?.signal,
+      errStderr: execError?.stderr,
+      errStdout: execError?.stdout,
+      binPath: ONCHAINOS_BIN,
     });
     return Response.json({ error: "Could not reach the on-chain risk scanner. Try again." }, { status: 502 });
   }

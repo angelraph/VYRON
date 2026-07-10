@@ -2,14 +2,12 @@ import "server-only";
 import { cache } from "react";
 import type {
   ActivityEvent,
-  ActivityEventType,
   Agent,
   AgentAvailability,
   EscrowTransaction,
   Goal,
   UserPreferences,
   WorkflowTask,
-  WorkflowTaskStatus,
 } from "@/lib/types";
 import { getEscrowProvider } from "@/lib/escrow";
 
@@ -305,7 +303,7 @@ export async function getLatestDelivery(
   task: Pick<WorkflowTask, "id" | "goalId" | "title">,
 ): Promise<{ summary: string; deliverable: string } | null> {
   const { parseDeliveryMessage, deliveryMessageMatchesTask } = await import(
-    "@/lib/ai/delivery-format"
+    "@/lib/engine/delivery-format"
   );
   const prisma = await getPrisma();
   const events = await prisma.activityEvent.findMany({
@@ -407,7 +405,10 @@ export const getAgentAffinityMap = cache(
   },
 );
 
-async function incrementAgentAffinity(
+/** Exported so `lib/engine/memory.ts` can record affinity from its own
+ * (real, transactional) goal-creation write without duplicating this
+ * upsert. */
+export async function incrementAgentAffinity(
   userId: string,
   agentId: string,
 ): Promise<void> {
@@ -422,161 +423,6 @@ async function incrementAgentAffinity(
 // ---------------------------------------------------------------------------
 // Goal + workflow orchestration
 // ---------------------------------------------------------------------------
-
-export interface PlannedTaskInput {
-  title: string;
-  description: string;
-  specialization: string;
-  order: number;
-  dependsOnIndexes: number[];
-  agentId: string | null;
-  price: number;
-  etaHours: number;
-  trustScore: number | null;
-  matchRationale: string | null;
-}
-
-export interface CreateGoalInput {
-  userId: string;
-  title: string;
-  budget: number;
-  tasks: PlannedTaskInput[];
-}
-
-/** Orchestrates the Execution Engine's output into persisted records: the
- * goal, its dependency-ordered tasks (kickoff tasks start "running" with
- * escrow locked through the active EscrowProvider, the rest wait "pending"),
- * and the activity events that narrate it. Everything here is a real
- * Prisma write — a goal exists for every process/request that queries it
- * right after this returns, not just the one that created it. Also records
- * agent affinity so future matches for this user can factor in what's
- * already worked. */
-export async function createGoalWithWorkflow(
-  input: CreateGoalInput,
-): Promise<Goal> {
-  const taskIds = input.tasks.map(() => newId("task"));
-  const now = new Date().toISOString();
-  const escrowProvider = getEscrowProvider();
-
-  const goal: Goal = {
-    id: newId("goal"),
-    userId: input.userId,
-    title: input.title,
-    status: "in_progress",
-    budget: input.budget,
-    createdAt: now,
-  };
-
-  const tasks: WorkflowTask[] = input.tasks.map((task, i) => {
-    const status = (task.dependsOnIndexes.length === 0
-      ? "running"
-      : "pending") satisfies WorkflowTaskStatus;
-    return {
-      id: taskIds[i],
-      goalId: goal.id,
-      title: task.title,
-      description: task.description,
-      order: task.order,
-      dependsOn: task.dependsOnIndexes.map((depIndex) => taskIds[depIndex]),
-      status,
-      specialization: task.specialization,
-      agentId: task.agentId,
-      price: task.price,
-      etaHours: task.etaHours,
-      trustScore: task.trustScore,
-      matchRationale: task.matchRationale,
-      startedAt: status === "running" ? now : null,
-      reviewStartedAt: null,
-    };
-  });
-
-  const prisma = await getPrisma();
-  await prisma.$transaction([
-    prisma.goal.create({
-      data: {
-        id: goal.id,
-        userId: goal.userId,
-        title: goal.title,
-        status: goal.status,
-        budget: goal.budget,
-      },
-    }),
-    ...tasks.map((task) =>
-      prisma.workflowTask.create({
-        data: {
-          id: task.id,
-          goalId: task.goalId,
-          title: task.title,
-          description: task.description,
-          order: task.order,
-          dependsOn: task.dependsOn,
-          status: task.status,
-          specialization: task.specialization,
-          agentId: task.agentId,
-          price: task.price,
-          etaHours: task.etaHours,
-          trustScore: task.trustScore,
-          matchRationale: task.matchRationale,
-          startedAt: task.startedAt ? new Date(task.startedAt) : null,
-        },
-      }),
-    ),
-  ]);
-
-  await logActivityEvent({
-    id: newId("evt"),
-    type: "goal_created" as ActivityEventType,
-    message: `Goal created: "${goal.title}"`,
-    createdAt: now,
-    goalId: goal.id,
-    agentId: null,
-  });
-
-  const agentsById = new Map((await getAgents()).map((agent) => [agent.id, agent]));
-
-  for (const task of tasks) {
-    if (!task.agentId) continue;
-
-    await logActivityEvent({
-      id: newId("evt"),
-      type: "agent_matched",
-      message: `Agent matched to ${task.title}`,
-      createdAt: now,
-      goalId: goal.id,
-      agentId: task.agentId,
-    });
-    await incrementAgentAffinity(input.userId, task.agentId);
-
-    if (task.status !== "running") continue;
-
-    const escrow = await escrowProvider.lock({
-      taskId: task.id,
-      agentId: task.agentId,
-      amount: task.price,
-      agentWalletAddress: agentsById.get(task.agentId)?.walletAddress,
-    });
-    await logActivityEvent({
-      id: newId("evt"),
-      type: "escrow_locked",
-      message: `Escrow locked for ${task.title} (${escrow.id})`,
-      createdAt: now,
-      goalId: goal.id,
-      agentId: task.agentId,
-      txHash: escrow.txHash ?? null,
-      explorerUrl: escrow.explorerUrl ?? null,
-    });
-    await logActivityEvent({
-      id: newId("evt"),
-      type: "task_started",
-      message: `${task.title} started`,
-      createdAt: now,
-      goalId: goal.id,
-      agentId: task.agentId,
-    });
-  }
-
-  return goal;
-}
 
 export interface ReassignmentResult {
   task: WorkflowTask;

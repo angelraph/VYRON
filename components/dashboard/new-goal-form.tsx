@@ -1,22 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import type { VeeEvent } from "@/lib/execution-engine";
+import type { VeeAgentAssignment, VeeEvent } from "@/lib/execution-engine";
+import type { TimedVeeEvent } from "@/components/dashboard/execution-pipeline";
 
 // Deferred until a goal is actually submitted — the framer-motion-driven
-// console shouldn't add to the JS the initial goal form needs to load.
-const ExecutionConsole = dynamic(
+// pipeline/graph shouldn't add to the JS the initial goal form needs to load.
+const ExecutionPipeline = dynamic(
   () =>
-    import("@/components/dashboard/execution-console").then(
-      (m) => m.ExecutionConsole,
+    import("@/components/dashboard/execution-pipeline").then(
+      (m) => m.ExecutionPipeline,
     ),
   {
     ssr: false,
@@ -26,12 +26,26 @@ const ExecutionConsole = dynamic(
   },
 );
 
+const AgentTaskGraph = dynamic(
+  () =>
+    import("@/components/dashboard/agent-task-graph").then(
+      (m) => m.AgentTaskGraph,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[12rem] animate-pulse rounded-2xl bg-muted/40" />
+    ),
+  },
+);
+
 type Phase = "form" | "streaming" | "done" | "error";
 
 export function NewGoalForm() {
-  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("form");
-  const [events, setEvents] = useState<VeeEvent[]>([]);
+  const [timeline, setTimeline] = useState<TimedVeeEvent[]>([]);
+  const [agentAssignments, setAgentAssignments] = useState<VeeAgentAssignment[]>([]);
+  const [goalId, setGoalId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -44,7 +58,9 @@ export function NewGoalForm() {
     const budget = budgetRaw ? Number(budgetRaw) : undefined;
 
     setError(null);
-    setEvents([]);
+    setTimeline([]);
+    setAgentAssignments([]);
+    setGoalId(null);
     setPhase("streaming");
 
     try {
@@ -53,6 +69,13 @@ export function NewGoalForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, budget }),
       });
+
+      if (res.status === 429) {
+        const body = await res.json().catch(() => null);
+        setError(body?.error ?? "Too many goals submitted — please wait a moment.");
+        setPhase("error");
+        return;
+      }
 
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => null);
@@ -75,17 +98,20 @@ export function NewGoalForm() {
         } catch (parseError) {
           // A single malformed/truncated line (e.g. a dev-server HMR restart
           // cutting the stream mid-write) shouldn't take down the whole
-          // console — skip it and keep listening for the next one.
+          // pipeline — skip it and keep listening for the next one.
           console.warn("Skipping malformed execution event", parseError, line);
           return;
         }
-        setEvents((prev) => [...prev, event]);
+        setTimeline((prev) => [...prev, { event, receivedAt: Date.now() }]);
         if (event.stage === "error") {
           sawError = true;
           setError(event.message);
         }
         if (event.goal) {
           finalGoalId = event.goal.id;
+        }
+        if (event.agentAssignments) {
+          setAgentAssignments(event.agentAssignments);
         }
       };
 
@@ -104,8 +130,8 @@ export function NewGoalForm() {
       if (sawError) {
         setPhase("error");
       } else if (finalGoalId) {
+        setGoalId(finalGoalId);
         setPhase("done");
-        setTimeout(() => router.push(`/dashboard/workflows/${finalGoalId}`), 900);
       } else {
         setError("The execution engine stopped before finishing. Try again.");
         setPhase("error");
@@ -147,7 +173,7 @@ export function NewGoalForm() {
               size="lg"
               className="bg-gradient-brand text-primary-foreground w-fit"
             >
-              Give VYRON this goal
+              Execute Goal
               <ArrowRight className="size-4" />
             </Button>
           </form>
@@ -157,40 +183,56 @@ export function NewGoalForm() {
   }
 
   return (
-    <Card className="glass border-0 py-6">
-      <CardContent className="flex flex-col gap-4 px-6">
-        <ExecutionConsole events={events} streaming={phase === "streaming"} />
-        {phase === "error" && (
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-destructive text-sm">{error}</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setPhase("form");
-                setError(null);
-                setEvents([]);
-              }}
-            >
-              Try again
-            </Button>
-          </div>
-        )}
-        {phase !== "error" && (
-          <p
-            className={`flex items-center gap-2 text-xs ${phase === "done" ? "text-emerald-400" : "text-muted-foreground"}`}
-          >
-            {phase === "done" ? (
-              <CheckCircle2 className="size-3.5" />
-            ) : (
+    <div className="flex flex-col gap-6">
+      <Card className="glass border-0 py-6">
+        <CardContent className="flex flex-col gap-4 px-6">
+          <ExecutionPipeline
+            timeline={timeline}
+            streaming={phase === "streaming"}
+            errored={phase === "error"}
+          />
+          {phase === "error" && (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-destructive text-sm">{error}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setPhase("form");
+                  setError(null);
+                  setTimeline([]);
+                  setAgentAssignments([]);
+                }}
+              >
+                Try again
+              </Button>
+            </div>
+          )}
+          {phase === "streaming" && (
+            <p className="text-muted-foreground flex items-center gap-2 text-xs">
               <Loader2 className="size-3 animate-spin" />
+              VEE pipeline in progress...
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {phase === "done" && (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Task graph — real agents, real assignments</p>
+            {goalId && (
+              <Button asChild size="sm" className="bg-gradient-brand text-primary-foreground">
+                <a href={`/dashboard/workflows/${goalId}`}>
+                  View workflow
+                  <ArrowUpRight className="size-3.5" />
+                </a>
+              </Button>
             )}
-            {phase === "done"
-              ? "Execution Plan Ready — opening your workflow..."
-              : "VEE pipeline in progress..."}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+          </div>
+          <AgentTaskGraph assignments={agentAssignments} />
+        </div>
+      )}
+    </div>
   );
 }

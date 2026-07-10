@@ -1,15 +1,10 @@
 import "server-only";
-import { interpretGoal } from "@/lib/ai/goal-interpreter";
-import { matchAgentForTask } from "@/lib/ai/agent-matcher";
-import {
-  createGoalWithWorkflow,
-  getAgentAffinityMap,
-  getAgents,
-  getUserPreferences,
-  type PlannedTaskInput,
-} from "@/lib/db";
-import type { GoalPlanTask } from "@/lib/ai/types";
-import type { Goal } from "@/lib/types";
+import { decomposeGoal, graphDepth } from "@/lib/engine/planner";
+import { matchAgentForTask } from "@/lib/engine/matcher";
+import { createGoal } from "@/lib/engine/goal";
+import type { AgentAssignment } from "@/lib/engine/types";
+import { getAgentAffinityMap, getAgents, getUserPreferences } from "@/lib/db";
+import type { Agent, Goal } from "@/lib/types";
 
 /** The eleven-stage pipeline the VYRON Execution Engine (VEE) drives every
  * goal through. `memory_update` fires twice in practice: a recall at
@@ -31,72 +26,41 @@ export type VeeStage =
   | "memory_update"
   | "error";
 
+/** One real marketplace agent and the real tasks it was actually assigned
+ * for this goal — built from the same matching pass that decided
+ * assignment, not recomputed or guessed at render time. */
+export interface VeeAgentAssignment {
+  agent: Agent;
+  tasks: { title: string; description: string; specialization: string }[];
+}
+
 export interface VeeEvent {
   stage: VeeStage;
   message: string;
   done?: boolean;
   goal?: Goal;
+  /** Set only on the final event — the real per-agent task breakdown for
+   * the goal that was just created. */
+  agentAssignments?: VeeAgentAssignment[];
+  /** Set on stages with a genuinely countable sub-step (currently just the
+   * per-task agent assignment loop) — a real fraction, not a fake percent. */
+  progress?: { current: number; total: number };
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Longest path (in hours) from a root task through to `taskIndex`, walking
- * `dependsOnIndexes` — i.e. how long this task's branch actually takes
- * given real dependencies, not a flat sum of every task's duration. */
-function criticalPathHours(tasks: GoalPlanTask[]): number {
-  const memo = new Map<number, number>();
-
-  function pathTo(index: number, guard: Set<number>): number {
-    const cached = memo.get(index);
-    if (cached !== undefined) return cached;
-    if (guard.has(index)) return 0;
-    guard.add(index);
-
-    const task = tasks[index];
-    const depHours = task.dependsOnIndexes.length
-      ? Math.max(...task.dependsOnIndexes.map((dep) => pathTo(dep, guard)))
-      : 0;
-    const total = depHours + task.estimatedHours;
-    memo.set(index, total);
-    return total;
-  }
-
-  return tasks.length
-    ? Math.max(...tasks.map((_, i) => pathTo(i, new Set())))
-    : 0;
-}
-
-/** Dependency depth (longest chain of edges) — the graph's real "width" in
- * stages, used to report execution graph size honestly. */
-function graphDepth(tasks: GoalPlanTask[]): number {
-  const memo = new Map<number, number>();
-
-  function levelOf(index: number, guard: Set<number>): number {
-    const cached = memo.get(index);
-    if (cached !== undefined) return cached;
-    if (guard.has(index)) return 0;
-    guard.add(index);
-
-    const task = tasks[index];
-    const level = task.dependsOnIndexes.length
-      ? Math.max(...task.dependsOnIndexes.map((dep) => levelOf(dep, guard))) + 1
-      : 0;
-    memo.set(index, level);
-    return level;
-  }
-
-  return tasks.length
-    ? Math.max(...tasks.map((_, i) => levelOf(i, new Set()))) + 1
-    : 0;
-}
-
 /** Runs one goal through the VEE pipeline, yielding a real event per stage
  * as it actually completes. Every number and name in these messages comes
  * from genuine computation against the marketplace and the planned
- * workflow — nothing here is scripted copy, and delay between stages
- * scales with how much real work that stage actually did. */
+ * workflow (via `lib/engine/planner` and `lib/engine/matcher`) — nothing
+ * here is scripted copy, and delay between stages scales with how much
+ * real work that stage actually did. The goal itself is persisted through
+ * `lib/engine/goal`, the engine's single entry point for bringing a goal
+ * into existence. This function's own job is purely to narrate that real
+ * work to the SSE stream the UI reads — it holds no execution logic of
+ * its own anymore. */
 export async function* runExecutionEngine(params: {
   userId: string;
   title: string;
@@ -131,7 +95,7 @@ export async function* runExecutionEngine(params: {
   };
   await sleep(450);
 
-  const plan = await interpretGoal(title);
+  const plan = await decomposeGoal(title);
   const confidencePct = Math.round(plan.intentConfidence * 100);
 
   yield {
@@ -154,11 +118,10 @@ export async function* runExecutionEngine(params: {
     (task) => task.dependsOnIndexes.length === 0,
   ).length;
   const depth = graphDepth(plan.tasks);
-  const estimatedDurationHours = criticalPathHours(plan.tasks);
 
   yield {
     stage: "dependency_graph",
-    message: `Generated execution graph — ${plan.tasks.length} nodes, ${dependencyEdges} dependencies, depth ${depth}. Estimated duration ≈ ${estimatedDurationHours}h critical path.`,
+    message: `Generated execution graph — ${plan.tasks.length} nodes, ${dependencyEdges} dependencies, depth ${depth}. Estimated duration ≈ ${plan.estimatedDurationHours}h critical path.`,
   };
   await sleep(350 + depth * 80);
 
@@ -200,44 +163,60 @@ export async function* runExecutionEngine(params: {
   yield {
     stage: "trust_scoring",
     message: `Ranking candidates by price fit, rating, experience, and availability... estimated cost $${estimatedCost} (${budgetNote})`,
+    progress: { current: 0, total: matches.length },
   };
   await sleep(300 + matches.length * 70);
 
-  for (const { task, match } of matches) {
+  for (const [i, { task, match }] of matches.entries()) {
     yield {
       stage: "agent_assignment",
       message: match.agent
         ? `${match.agent.name} assigned to ${task.title} — trust score ${match.trustScore}/100 across ${match.candidateCount} candidate(s), ${match.rationale}`
         : `No compatible agent found for ${task.title} among ${match.candidateCount} candidate(s)`,
+      progress: { current: i + 1, total: matches.length },
     };
     await sleep(220 + match.candidateCount * 15);
   }
 
-  const tasks: PlannedTaskInput[] = matches.map(({ task, match }, i) => ({
-    title: task.title,
-    description: task.description,
-    specialization: task.specialization,
-    order: i,
-    dependsOnIndexes: task.dependsOnIndexes,
-    agentId: match.agent?.id ?? null,
-    price: match.agent?.pricePerTask ?? perTaskBudgetHint ?? 0,
-    etaHours: task.estimatedHours,
-    trustScore: match.agent ? match.trustScore : null,
-    matchRationale: match.agent ? match.rationale : null,
+  const assignments: AgentAssignment[] = matches.map(({ match }, taskIndex) => ({
+    taskIndex,
+    agent: match.agent,
+    trustScore: match.trustScore,
+    candidateCount: match.candidateCount,
+    rationale: match.rationale,
   }));
-  const totalBudget = budget ?? tasks.reduce((sum, t) => sum + t.price, 0);
+  const totalBudget = budget ?? estimatedCost;
 
-  const goal = await createGoalWithWorkflow({
+  const { goal } = await createGoal({
     userId,
     title,
     budget: totalBudget,
-    tasks,
+    plan,
+    assignments,
   });
+
+  const agentAssignments: VeeAgentAssignment[] = [];
+  const assignmentByAgentId = new Map<string, VeeAgentAssignment>();
+  for (const { task, match } of matches) {
+    if (!match.agent) continue;
+    let entry = assignmentByAgentId.get(match.agent.id);
+    if (!entry) {
+      entry = { agent: match.agent, tasks: [] };
+      assignmentByAgentId.set(match.agent.id, entry);
+      agentAssignments.push(entry);
+    }
+    entry.tasks.push({
+      title: task.title,
+      description: task.description,
+      specialization: task.specialization,
+    });
+  }
 
   yield {
     stage: "execution_monitoring",
-    message: `Escrow initialized. Execution started — ${kickoffTasks} task(s) running now, ~${estimatedDurationHours}h to completion.`,
+    message: `Escrow initialized. Execution started — ${kickoffTasks} task(s) running now, ~${plan.estimatedDurationHours}h to completion.`,
     done: true,
     goal,
+    agentAssignments,
   };
 }

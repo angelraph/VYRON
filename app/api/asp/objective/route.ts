@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { runExecutionEngine } from "@/lib/execution-engine";
+import { executionEngine } from "@/lib/engine/executor";
 import {
   getEscrowTransactionsByGoal,
   getGoalById,
@@ -85,9 +86,26 @@ export async function GET(request: Request) {
     return Response.json({ error: "goalId query param is required." }, { status: 400 });
   }
 
-  const goal = await getGoalById(goalId);
+  let goal = await getGoalById(goalId);
   if (!goal) {
     return Response.json({ error: "No such goal." }, { status: 404 });
+  }
+
+  // Vercel's serverless runtime freezes the process between requests, so
+  // instrumentation.ts's setInterval tick loop only ever gets to run
+  // opportunistically while some request happens to be in flight — it can't
+  // be relied on to advance work in the background. Drive one real tick
+  // synchronously on every poll instead, so status checks (this route, the
+  // dashboard, or OKX's own bridge) are what actually make progress happen.
+  if (goal.status !== "completed") {
+    await executionEngine.executeNextTask().catch((error) => {
+      logger.error("asp_fulfillment", {
+        stage: "objective_poll_tick",
+        outcome: "failure",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    goal = (await getGoalById(goalId)) ?? goal;
   }
 
   const tasks = await getWorkflowTasksByGoal(goalId);

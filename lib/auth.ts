@@ -5,8 +5,8 @@ import type { VyronUser } from "@/lib/types";
 
 const DEMO_USER: VyronUser = {
   id: DEMO_USER_ID,
-  name: "Demo Founder",
-  email: "founder@vyron.dev",
+  name: "angelraph",
+  email: "uzoechiraphael1@gmail.com",
   imageUrl: null,
 };
 

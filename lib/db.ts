@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import type { PrismaClient } from "@prisma/client";
 import type {
   ActivityEvent,
   Agent,
@@ -11,16 +12,60 @@ import type {
 } from "@/lib/types";
 import { getEscrowProvider } from "@/lib/escrow";
 
+/** Neon's serverless Postgres suspends the compute after a few minutes idle
+ * — the first query after that hits a real (transient) connection error
+ * while it wakes back up. Without a retry, that surfaces as a hard failure
+ * on whatever page happened to run first (goal pages, dashboards, etc.),
+ * which then "just works" on a manual refresh once Neon is warm. Retrying
+ * the small set of Prisma's own transient-connection error codes here,
+ * once, centrally, means every caller gets that resilience for free. */
+const RETRIABLE_PRISMA_CODES = new Set(["P1001", "P1002", "P1008", "P1017", "P2024"]);
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 300;
+
+function extendWithRetry(client: PrismaClient) {
+  return client.$extends({
+    query: {
+      $allModels: {
+        async $allOperations({ args, query }) {
+          let lastError: unknown;
+          for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+            try {
+              return await query(args);
+            } catch (error) {
+              lastError = error;
+              // PrismaClientKnownRequestError (query-time) uses `.code`;
+              // PrismaClientInitializationError (connection-time — what
+              // Neon's cold-start actually throws) uses `.errorCode` and
+              // also exposes its own `.retryable` flag.
+              const errorInfo = error as { code?: string; errorCode?: string; retryable?: boolean } | null;
+              const code = errorInfo?.code ?? errorInfo?.errorCode;
+              const isRetriable = errorInfo?.retryable === true || (!!code && RETRIABLE_PRISMA_CODES.has(code));
+              if (!isRetriable || attempt === RETRY_ATTEMPTS) {
+                throw error;
+              }
+              await new Promise((resolve) => setTimeout(resolve, attempt * RETRY_BASE_DELAY_MS));
+            }
+          }
+          throw lastError;
+        },
+      },
+    },
+  });
+}
+
+type ExtendedPrismaClient = ReturnType<typeof extendWithRetry>;
+
 /** Exported so `/api/health` can run a real connectivity check against the
  * same singleton client the rest of the app uses, rather than spinning up
  * a second one. */
-export async function getPrisma() {
-  const { PrismaClient } = await import("@prisma/client");
+export async function getPrisma(): Promise<ExtendedPrismaClient> {
+  const { PrismaClient: PrismaClientCtor } = await import("@prisma/client");
   const globalForPrisma = globalThis as unknown as {
-    prisma?: InstanceType<typeof PrismaClient>;
+    prisma?: ExtendedPrismaClient;
   };
   if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = new PrismaClient();
+    globalForPrisma.prisma = extendWithRetry(new PrismaClientCtor());
   }
   return globalForPrisma.prisma;
 }

@@ -5,6 +5,23 @@ import { xLayerRpcUrl, xLayerTestnet } from "@/lib/web3/config";
 import { escrowAbi } from "@/lib/web3/abis";
 import type { EscrowLockParams, EscrowProvider, EscrowResult } from "@/lib/escrow/provider";
 
+/** Same singleton key `simulated-provider.ts` uses — both providers share
+ * one Prisma client. The chain is the source of truth for the funds
+ * themselves, but `settleTask`/`getLockedEscrow` (lib/engine/memory.ts,
+ * lib/db.ts) only ever look in Postgres to decide what needs releasing —
+ * without mirroring lock/release/refund here, a real on-chain lock becomes
+ * invisible to the rest of the app and can never be released. */
+async function getPrisma() {
+  const { PrismaClient } = await import("@prisma/client");
+  const globalForPrisma = globalThis as unknown as {
+    prisma?: InstanceType<typeof PrismaClient>;
+  };
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = new PrismaClient();
+  }
+  return globalForPrisma.prisma;
+}
+
 /** Demo-only USD -> native-token conversion. Task prices in this app are
  * dollar-denominated and there's no real price oracle wired up — this
  * fixed rate just keeps testnet transactions small and safe regardless of
@@ -80,8 +97,15 @@ export const xLayerEscrowProvider: EscrowProvider = {
     const hash = await walletClient.writeContract(request);
     await publicClient.waitForTransactionReceipt({ hash });
 
+    const id = encodeEscrowId(onChainId);
+    const explorerUrl = explorerTxUrl(hash);
+    const prisma = await getPrisma();
+    await prisma.escrowTransaction.create({
+      data: { id, taskId, agentId, amount, status: "locked", txHash: hash, explorerUrl },
+    });
+
     return {
-      id: encodeEscrowId(onChainId),
+      id,
       taskId,
       agentId,
       amount,
@@ -89,7 +113,7 @@ export const xLayerEscrowProvider: EscrowProvider = {
       createdAt: new Date().toISOString(),
       releasedAt: null,
       txHash: hash,
-      explorerUrl: explorerTxUrl(hash),
+      explorerUrl,
     };
   },
 
@@ -114,17 +138,24 @@ export const xLayerEscrowProvider: EscrowProvider = {
       args: [onChainId],
     });
     const releasedAt = new Date().toISOString();
+    const explorerUrl = explorerTxUrl(hash);
+
+    const prisma = await getPrisma();
+    const updated = await prisma.escrowTransaction.update({
+      where: { id: escrowId },
+      data: { status: "released", releasedAt: new Date(), txHash: hash, explorerUrl },
+    });
 
     return {
       id: escrowId,
-      taskId: "",
+      taskId: updated.taskId,
       agentId: entry.agent,
       amount: Number(entry.amount) / 1e18 / DEMO_USD_TO_OKB_RATE,
       status: "released",
       createdAt: releasedAt,
       releasedAt,
       txHash: hash,
-      explorerUrl: explorerTxUrl(hash),
+      explorerUrl,
     };
   },
 
@@ -148,17 +179,24 @@ export const xLayerEscrowProvider: EscrowProvider = {
       functionName: "getEscrow",
       args: [onChainId],
     });
+    const explorerUrl = explorerTxUrl(hash);
+
+    const prisma = await getPrisma();
+    const updated = await prisma.escrowTransaction.update({
+      where: { id: escrowId },
+      data: { status: "refunded", txHash: hash, explorerUrl },
+    });
 
     return {
       id: escrowId,
-      taskId: "",
+      taskId: updated.taskId,
       agentId: entry.agent,
       amount: Number(entry.amount) / 1e18 / DEMO_USD_TO_OKB_RATE,
       status: "refunded",
       createdAt: new Date().toISOString(),
       releasedAt: null,
       txHash: hash,
-      explorerUrl: explorerTxUrl(hash),
+      explorerUrl,
     };
   },
 };

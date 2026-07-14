@@ -640,3 +640,22 @@ export class ExecutionEngine extends EventEmitter {
  * for why this is a deliberate singleton, matching the process-local
  * assumptions already made elsewhere in the app. */
 export const executionEngine = new ExecutionEngine();
+
+/** Drives one real tick before a server-rendered page reads goal/task data.
+ * On Vercel, instrumentation.ts's background interval only gets CPU time
+ * opportunistically while some other request happens to be in flight, and
+ * the cron backstop is capped at once/day (Hobby plan) — so a page that
+ * only reads the DB can show a goal stuck on "running" for hours even
+ * though nothing is actually broken. `executeNextTask` already no-ops
+ * cheaply (one DB query, no model calls) when nothing is active, so this is
+ * safe to call unconditionally from any page that displays goal/task
+ * status. Never throws — a tick failure shouldn't take down page render. */
+export async function driveEngineTick(source: string): Promise<void> {
+  await executionEngine.executeNextTask().catch((error) => {
+    logger.error("dashboard_tick", {
+      stage: source,
+      outcome: "failure",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+}

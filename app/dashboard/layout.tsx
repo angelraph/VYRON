@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/auth";
+import { driveEngineTick } from "@/lib/engine/executor";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { Topbar } from "@/components/dashboard/topbar";
 import { BackgroundGlow } from "@/components/shared/background-glow";
@@ -15,6 +16,12 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   await requireUser();
+
+  // Vercel freezes the process between requests, so the background engine
+  // loop (instrumentation.ts) can't be relied on to advance goals on its
+  // own — drive one real tick here so every dashboard page (not just the
+  // OKX ASP bridge) reflects actual progress instead of a stale DB read.
+  await driveEngineTick("dashboard_layout");
 
   return (
     <div className="relative min-h-screen">

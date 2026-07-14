@@ -345,6 +345,51 @@ export async function releaseTask(taskId: string): Promise<void> {
   });
 }
 
+const WALLET_LOCK_ID = "orchestrator";
+/** A held lock older than this is assumed to belong to a crashed/killed
+ * invocation rather than one still legitimately mid-transaction -- without
+ * this, one bad crash between acquire and release would permanently
+ * deadlock every future escrow write. */
+const WALLET_LOCK_STALE_MS = 60_000;
+const WALLET_LOCK_ACQUIRE_TIMEOUT_MS = 20_000;
+const WALLET_LOCK_RETRY_DELAY_MS = 300;
+
+/** Cross-process mutex for the orchestrator wallet's on-chain writes -- see
+ * the schema comment on `WalletLock`. Unlike `claimTask` (where losing the
+ * race just means "skip, someone else has it"), a wallet write genuinely
+ * needs the lock to proceed, so this retries with jitter until it gets it
+ * or times out, rather than failing immediately on the first contended
+ * attempt. */
+export async function acquireWalletLock(): Promise<void> {
+  const prisma = await getPrisma();
+  await prisma.walletLock.upsert({
+    where: { id: WALLET_LOCK_ID },
+    create: { id: WALLET_LOCK_ID },
+    update: {},
+  });
+
+  const deadline = Date.now() + WALLET_LOCK_ACQUIRE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const staleBefore = new Date(Date.now() - WALLET_LOCK_STALE_MS);
+    const result = await prisma.walletLock.updateMany({
+      where: { id: WALLET_LOCK_ID, OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }] },
+      data: { claimedAt: new Date() },
+    });
+    if (result.count > 0) return;
+    await new Promise((resolve) =>
+      setTimeout(resolve, WALLET_LOCK_RETRY_DELAY_MS + Math.random() * WALLET_LOCK_RETRY_DELAY_MS),
+    );
+  }
+  throw new Error(
+    "Could not acquire the orchestrator wallet lock in time -- too much concurrent escrow activity.",
+  );
+}
+
+export async function releaseWalletLock(): Promise<void> {
+  const prisma = await getPrisma();
+  await prisma.walletLock.update({ where: { id: WALLET_LOCK_ID }, data: { claimedAt: null } });
+}
+
 export async function getLockedEscrowForTask(
   taskId: string,
 ): Promise<EscrowTransaction | null> {

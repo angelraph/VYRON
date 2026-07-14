@@ -168,3 +168,18 @@ enum ActivityEventType {
   escrow_released
   escrow_refunded
 }
+
+/** Single-row cross-process mutex for the orchestrator wallet's on-chain
+ * writes (lock/release/refund). Vercel serverless has no shared in-memory
+ * state, so two concurrent invocations can each independently fetch the
+ * wallet's "next" nonce before either transaction confirms and submit with
+ * the same nonce -- one of them fails outright, and if that happens inside
+ * `lock()` the task silently proceeds with no escrow ever recorded (same
+ * end symptom as the bug this whole escrow rework started from, just a
+ * different trigger). Claimed the same way as WorkflowTask.claimedAt:
+ * Postgres serializes the conditional UPDATE, so only one concurrent
+ * claimer ever wins. */
+model WalletLock {
+  id        String    @id
+  claimedAt DateTime?
+}

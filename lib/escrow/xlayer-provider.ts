@@ -1,6 +1,7 @@
 import "server-only";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { acquireWalletLock, releaseWalletLock } from "@/lib/db";
 import { xLayerRpcUrl, xLayerTestnet } from "@/lib/web3/config";
 import { escrowAbi } from "@/lib/web3/abis";
 import type { EscrowLockParams, EscrowProvider, EscrowResult } from "@/lib/escrow/provider";
@@ -86,16 +87,29 @@ export const xLayerEscrowProvider: EscrowProvider = {
     const { publicClient, walletClient, account, escrowAddress } = getClients();
     const value = usdToWei(amount);
 
-    const { request, result: onChainId } = await publicClient.simulateContract({
-      address: escrowAddress,
-      abi: escrowAbi,
-      functionName: "lockFunds",
-      args: [agentWalletAddress as `0x${string}`],
-      value,
-      account,
-    });
-    const hash = await walletClient.writeContract(request);
-    await publicClient.waitForTransactionReceipt({ hash });
+    // The orchestrator wallet is shared across every concurrent invocation
+    // on Vercel serverless; without serializing writes here, two overlapping
+    // lock/release/refund calls can each fetch the same "next" nonce before
+    // either confirms, and whichever loses just throws -- silently, since
+    // nothing here retries it. See the schema comment on WalletLock.
+    let onChainId: bigint;
+    let hash: `0x${string}`;
+    await acquireWalletLock();
+    try {
+      const simulated = await publicClient.simulateContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: "lockFunds",
+        args: [agentWalletAddress as `0x${string}`],
+        value,
+        account,
+      });
+      onChainId = simulated.result;
+      hash = await walletClient.writeContract(simulated.request);
+      await publicClient.waitForTransactionReceipt({ hash });
+    } finally {
+      await releaseWalletLock();
+    }
 
     const id = encodeEscrowId(onChainId);
     const explorerUrl = explorerTxUrl(hash);
@@ -121,15 +135,21 @@ export const xLayerEscrowProvider: EscrowProvider = {
     const onChainId = decodeEscrowId(escrowId);
     const { publicClient, walletClient, account, escrowAddress } = getClients();
 
-    const { request } = await publicClient.simulateContract({
-      address: escrowAddress,
-      abi: escrowAbi,
-      functionName: "releaseFunds",
-      args: [onChainId],
-      account,
-    });
-    const hash = await walletClient.writeContract(request);
-    await publicClient.waitForTransactionReceipt({ hash });
+    let hash: `0x${string}`;
+    await acquireWalletLock();
+    try {
+      const { request } = await publicClient.simulateContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: "releaseFunds",
+        args: [onChainId],
+        account,
+      });
+      hash = await walletClient.writeContract(request);
+      await publicClient.waitForTransactionReceipt({ hash });
+    } finally {
+      await releaseWalletLock();
+    }
 
     const entry = await publicClient.readContract({
       address: escrowAddress,
@@ -163,15 +183,21 @@ export const xLayerEscrowProvider: EscrowProvider = {
     const onChainId = decodeEscrowId(escrowId);
     const { publicClient, walletClient, account, escrowAddress } = getClients();
 
-    const { request } = await publicClient.simulateContract({
-      address: escrowAddress,
-      abi: escrowAbi,
-      functionName: "refundFunds",
-      args: [onChainId],
-      account,
-    });
-    const hash = await walletClient.writeContract(request);
-    await publicClient.waitForTransactionReceipt({ hash });
+    let hash: `0x${string}`;
+    await acquireWalletLock();
+    try {
+      const { request } = await publicClient.simulateContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: "refundFunds",
+        args: [onChainId],
+        account,
+      });
+      hash = await walletClient.writeContract(request);
+      await publicClient.waitForTransactionReceipt({ hash });
+    } finally {
+      await releaseWalletLock();
+    }
 
     const entry = await publicClient.readContract({
       address: escrowAddress,

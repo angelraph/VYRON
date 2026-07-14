@@ -22,7 +22,14 @@ const CHAINS = [
   { id: "137", label: "Polygon" },
   { id: "42161", label: "Arbitrum" },
   { id: "8453", label: "Base" },
+  { id: "501", label: "Solana" },
 ];
+
+const SOLANA_CHAIN_ID = "501";
+const EVM_ADDRESS_PATTERN = "^0x[a-fA-F0-9]{40}$";
+/** Base58 (no 0/O/I/l), 32-44 chars — Solana's actual address shape, not an
+ * EVM one with the 0x lopped off. */
+const SOLANA_ADDRESS_PATTERN = "^[1-9A-HJ-NP-Za-km-z]{32,44}$";
 
 interface RiskData {
   riskLevel: string;
@@ -90,14 +97,16 @@ export function SecurityScanForm() {
         <CardContent className="px-6">
           <form onSubmit={handleSubmit} className="flex flex-col gap-5">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="contractAddress">Contract address</Label>
+              <Label htmlFor="contractAddress">
+                {chainId === SOLANA_CHAIN_ID ? "Token mint address" : "Contract address"}
+              </Label>
               <Input
                 id="contractAddress"
-                placeholder="0x..."
+                placeholder={chainId === SOLANA_CHAIN_ID ? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" : "0x..."}
                 value={contractAddress}
                 onChange={(e) => setContractAddress(e.target.value)}
                 required
-                pattern="^0x[a-fA-F0-9]{40}$"
+                pattern={chainId === SOLANA_CHAIN_ID ? SOLANA_ADDRESS_PATTERN : EVM_ADDRESS_PATTERN}
                 className="font-mono text-sm"
               />
             </div>

@@ -47,9 +47,20 @@ async function ensureBundledLogin(): Promise<void> {
  * the contract, this returns an honest "no data" result rather than
  * fabricating findings. */
 
+/** Solana addresses are base58 (no 0/O/I/l), 32-44 chars — nothing like an
+ * EVM 0x address, so this needs its own pattern rather than one shared
+ * regex. Chain 501 is Solana's id in onchainos's own --chain flag. */
+const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
+const SOLANA_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
 const requestSchema = z.object({
-  contractAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Must be a valid 0x EVM contract address."),
-  chainId: z.string().regex(/^\d+$/, "chainId must be numeric (e.g. 196 for X Layer, 56 for BSC, 1 for Ethereum)."),
+  contractAddress: z
+    .string()
+    .refine(
+      (value) => EVM_ADDRESS_PATTERN.test(value) || SOLANA_ADDRESS_PATTERN.test(value),
+      "Must be a valid EVM (0x...) contract address or Solana (base58) token mint address.",
+    ),
+  chainId: z.string().regex(/^\d+$/, "chainId must be numeric (e.g. 196 for X Layer, 501 for Solana, 56 for BSC, 1 for Ethereum)."),
   concern: z.string().max(300).optional(),
 });
 

@@ -254,22 +254,32 @@ export class ExecutionEngine extends EventEmitter {
     this.ticking = true;
     try {
       const activeTasks = await memory.getActiveTasks();
-      if (activeTasks.length === 0) return;
-
-      const agents = await memory.getAgentRoster();
-      const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
       const touchedGoalIds = new Set<string>();
 
-      await Promise.allSettled(
-        activeTasks.map(async (task) => {
-          const agent = task.agentId ? agentsById.get(task.agentId) : undefined;
-          if (task.status === "running") {
-            await this.handleRunningTask(task, agent, agents, touchedGoalIds);
-          } else if (task.status === "review") {
-            await this.handleReviewTask(task, agent, agents, touchedGoalIds);
-          }
-        }),
-      );
+      if (activeTasks.length > 0) {
+        const agents = await memory.getAgentRoster();
+        const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
+
+        await Promise.allSettled(
+          activeTasks.map(async (task) => {
+            const agent = task.agentId ? agentsById.get(task.agentId) : undefined;
+            if (task.status === "running") {
+              await this.handleRunningTask(task, agent, agents, touchedGoalIds);
+            } else if (task.status === "review") {
+              await this.handleReviewTask(task, agent, agents, touchedGoalIds);
+            }
+          }),
+        );
+      }
+
+      // A goal whose active tasks just finished (dropping straight to zero)
+      // wouldn't otherwise get another chance to advance — nothing above
+      // touches it once it has no running/review task left. Check every
+      // goal with a pending task on every tick instead of only advancing as
+      // a side effect of processing active work, so a goal never stalls
+      // just because its dependency-satisfying task finished in isolation.
+      const pendingTasks = await memory.getPendingTasks();
+      for (const task of pendingTasks) touchedGoalIds.add(task.goalId);
 
       for (const goalId of touchedGoalIds) {
         await this.advanceAndMaybeComplete(goalId);
@@ -295,6 +305,10 @@ export class ExecutionEngine extends EventEmitter {
   ): Promise<void> {
     if (!task.agentId || !agent) return;
     if (this.inFlightExecutions.has(task.id) || this.givenUp.has(task.id)) return;
+    // Cross-process claim — the in-memory checks above only protect within
+    // this warm process; a concurrent invocation elsewhere could otherwise
+    // start the same task a second time (see WorkflowTask.claimedAt).
+    if (!(await memory.claimTask(task.id))) return;
 
     this.inFlightExecutions.add(task.id);
     const startedAt = Date.now();
@@ -374,6 +388,7 @@ export class ExecutionEngine extends EventEmitter {
       await this.handleExecutionFailure(task, agent, agents);
     } finally {
       this.inFlightExecutions.delete(task.id);
+      await memory.releaseTask(task.id);
     }
   }
 
@@ -412,6 +427,11 @@ export class ExecutionEngine extends EventEmitter {
     touchedGoalIds: Set<string>,
   ): Promise<void> {
     if (this.inFlightVerifications.has(task.id) || this.givenUp.has(task.id)) return;
+    // Cross-process claim — see the matching comment in handleRunningTask.
+    // This also protects the reassignment path below: without it, another
+    // invocation could still be mid-execution on the stale agent's attempt
+    // while this one reassigns, racing the escrow re-lock.
+    if (!(await memory.claimTask(task.id))) return;
 
     this.inFlightVerifications.add(task.id);
     const startedAt = Date.now();
@@ -514,6 +534,7 @@ export class ExecutionEngine extends EventEmitter {
       });
     } finally {
       this.inFlightVerifications.delete(task.id);
+      await memory.releaseTask(task.id);
     }
   }
 

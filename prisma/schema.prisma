@@ -100,6 +100,15 @@ model WorkflowTask {
   matchRationale String?
   startedAt      DateTime?
   reviewStartedAt DateTime?
+  /** Per-task mutex: set atomically when an invocation starts real work on
+   * this task, cleared when it finishes. Vercel serverless has no shared
+   * in-memory state across invocations, so two overlapping requests can
+   * otherwise both pick up the same task and process it concurrently
+   * (double execution, races during reassignment). Claiming via a
+   * conditional update on this column is real cross-process mutual
+   * exclusion; the in-memory Sets in lib/engine/executor.ts only guard
+   * within one warm process and stay as a fast local pre-check. */
+  claimedAt      DateTime?
   escrowTxs      EscrowTransaction[]
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt

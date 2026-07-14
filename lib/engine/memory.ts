@@ -8,9 +8,12 @@ import {
   getDependencyDeliverables,
   getGoalById,
   getLatestDelivery,
+  claimTask as dbClaimTask,
   getLockedEscrowForTask,
+  getPendingTasks as dbGetPendingTasks,
   getPrisma,
   getUserPreferences,
+  releaseTask as dbReleaseTask,
   getWorkflowTasksByGoal,
   incrementAgentAffinity,
   logActivityEvent,
@@ -150,30 +153,38 @@ export async function saveWorkflow(
   const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
 
   for (const task of justStarted) {
-    const now = new Date().toISOString();
-    await dbUpdateTask(task.id, { status: "running", startedAt: now });
-    await saveEvent({
-      type: "task_started",
-      message: `${task.title} started`,
-      goalId,
-      agentId: task.agentId,
-    });
+    // Two concurrent ticks can independently compute the same task as
+    // newly-unblocked from a stale pre-transition snapshot — claim it first
+    // so only one of them actually starts it and locks its escrow.
+    if (!(await dbClaimTask(task.id))) continue;
+    try {
+      const now = new Date().toISOString();
+      await dbUpdateTask(task.id, { status: "running", startedAt: now });
+      await saveEvent({
+        type: "task_started",
+        message: `${task.title} started`,
+        goalId,
+        agentId: task.agentId,
+      });
 
-    if (!task.agentId) continue;
-    const escrow = await escrowProvider.lock({
-      taskId: task.id,
-      agentId: task.agentId,
-      amount: task.price,
-      agentWalletAddress: agentsById.get(task.agentId)?.walletAddress,
-    });
-    await saveEvent({
-      type: "escrow_locked",
-      message: `Escrow locked for ${task.title} (${escrow.id})`,
-      goalId,
-      agentId: task.agentId,
-      txHash: escrow.txHash ?? null,
-      explorerUrl: escrow.explorerUrl ?? null,
-    });
+      if (!task.agentId) continue;
+      const escrow = await escrowProvider.lock({
+        taskId: task.id,
+        agentId: task.agentId,
+        amount: task.price,
+        agentWalletAddress: agentsById.get(task.agentId)?.walletAddress,
+      });
+      await saveEvent({
+        type: "escrow_locked",
+        message: `Escrow locked for ${task.title} (${escrow.id})`,
+        goalId,
+        agentId: task.agentId,
+        txHash: escrow.txHash ?? null,
+        explorerUrl: escrow.explorerUrl ?? null,
+      });
+    } finally {
+      await dbReleaseTask(task.id);
+    }
   }
 }
 
@@ -249,6 +260,18 @@ export async function getPreferences(userId: string): Promise<UserPreferences> {
 
 export async function getActiveTasks(): Promise<WorkflowTask[]> {
   return dbGetActiveTasks();
+}
+
+export async function getPendingTasks(): Promise<WorkflowTask[]> {
+  return dbGetPendingTasks();
+}
+
+export async function claimTask(taskId: string): Promise<boolean> {
+  return dbClaimTask(taskId);
+}
+
+export async function releaseTask(taskId: string): Promise<void> {
+  return dbReleaseTask(taskId);
 }
 
 export async function getDependencyOutputs(

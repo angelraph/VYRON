@@ -205,6 +205,21 @@ export async function getActiveTasks(): Promise<WorkflowTask[]> {
   return tasks.map(serializeTask);
 }
 
+/** Every not-yet-started task across every goal. Scanned each tick
+ * alongside `getActiveTasks` so a goal whose running/review tasks just
+ * finished (dropping its active-task count to zero) still gets checked for
+ * newly-unblocked dependents — workflow advancement was previously only a
+ * side effect of processing an active task, so a goal with pending tasks
+ * but zero active ones could stall forever even after its dependencies
+ * were satisfied. */
+export async function getPendingTasks(): Promise<WorkflowTask[]> {
+  const prisma = await getPrisma();
+  const tasks = await prisma.workflowTask.findMany({
+    where: { status: "pending" },
+  });
+  return tasks.map(serializeTask);
+}
+
 export async function getPendingTasksByGoal(
   goalId: string,
 ): Promise<WorkflowTask[]> {
@@ -300,6 +315,34 @@ export async function updateTask(
     },
   });
   return serializeTask(updated);
+}
+
+/** Atomic cross-process mutex: succeeds only if nobody else currently holds
+ * the claim (`claimedAt: null` in the WHERE clause). Postgres serializes
+ * concurrent UPDATEs on the same row, so of two overlapping invocations
+ * racing this call, only one can ever see `count > 0` — the other's WHERE
+ * no longer matches once the first commits. See the schema comment on
+ * `WorkflowTask.claimedAt` for why this exists (Vercel serverless has no
+ * shared in-memory state across invocations). */
+export async function claimTask(taskId: string): Promise<boolean> {
+  const prisma = await getPrisma();
+  const result = await prisma.workflowTask.updateMany({
+    where: { id: taskId, claimedAt: null },
+    data: { claimedAt: new Date() },
+  });
+  return result.count > 0;
+}
+
+/** Releases a claim taken by `claimTask`, regardless of how the caller's
+ * processing ended (success, failure, or an early bail) — callers must run
+ * this in a `finally` so a crash mid-processing can't leave a task
+ * permanently unclaimable. */
+export async function releaseTask(taskId: string): Promise<void> {
+  const prisma = await getPrisma();
+  await prisma.workflowTask.update({
+    where: { id: taskId },
+    data: { claimedAt: null },
+  });
 }
 
 export async function getLockedEscrowForTask(

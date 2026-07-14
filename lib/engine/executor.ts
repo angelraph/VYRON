@@ -5,6 +5,7 @@ import { matchAgentForTask } from "@/lib/engine/matcher";
 import * as memory from "@/lib/engine/memory";
 import { advanceWorkflow, isWorkflowComplete } from "@/lib/engine/workflow";
 import { logger } from "@/lib/logger";
+import { recordOnChainReputationFailure, recordOnChainReputationSuccess } from "@/lib/web3/reputation";
 import type { Agent, WorkflowTask } from "@/lib/types";
 import {
   taskDeliverableSchema,
@@ -471,7 +472,7 @@ export class ExecutionEngine extends EventEmitter {
           data: { approved: true, qualityScore: verdict.qualityScore },
         });
 
-        await this.settleTask(task, agent);
+        await this.settleTask(task, agent, verdict.qualityScore);
         this.regenerationAttempts.delete(task.id);
         touchedGoalIds.add(task.goalId);
         return;
@@ -582,6 +583,19 @@ export class ExecutionEngine extends EventEmitter {
       message: `${task.title} reassigned to ${match.agent.name} — ${reason}`,
       data: { previousAgentId: stalledAgent?.id ?? task.agentId },
     });
+
+    if (stalledAgent) {
+      await recordOnChainReputationFailure(stalledAgent, reason).catch((error) => {
+        logger.error("reputation_update", {
+          goalId: task.goalId,
+          taskId: task.id,
+          agentId: stalledAgent.id,
+          stage: "record_failure",
+          outcome: "failure",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
   }
 
   /** Terminal state for a task VYRON can't move forward autonomously —
@@ -609,9 +623,13 @@ export class ExecutionEngine extends EventEmitter {
     });
   }
 
-  private async settleTask(task: WorkflowTask, agent: Agent | undefined): Promise<void> {
-    await memory.updateExecution(task.id, { status: "paid" });
-
+  /** Order matters: the escrow release (a real chain write that can
+   * genuinely fail transiently — a wallet-lock timeout under concurrent
+   * settlement load, an RPC hiccup) runs BEFORE the task is marked "paid",
+   * not after. If it throws, this function throws too, the task stays in
+   * "review", and it gets retried on the next tick — instead of silently
+   * becoming "paid" with no escrow ever released. */
+  private async settleTask(task: WorkflowTask, agent: Agent | undefined, qualityScore: number): Promise<void> {
     const escrow = task.agentId ? await memory.getLockedEscrow(task.id) : null;
     if (escrow) {
       const released = await memory.releaseEscrow(escrow.id);
@@ -622,6 +640,21 @@ export class ExecutionEngine extends EventEmitter {
         agentId: task.agentId,
         txHash: released.txHash ?? null,
         explorerUrl: released.explorerUrl ?? null,
+      });
+    }
+
+    await memory.updateExecution(task.id, { status: "paid" });
+
+    if (agent) {
+      await recordOnChainReputationSuccess(agent, qualityScore, `Verified delivery of "${task.title}"`).catch((error) => {
+        logger.error("reputation_update", {
+          goalId: task.goalId,
+          taskId: task.id,
+          agentId: task.agentId,
+          stage: "record_success",
+          outcome: "failure",
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
     }
   }

@@ -317,17 +317,28 @@ export async function updateTask(
   return serializeTask(updated);
 }
 
-/** Atomic cross-process mutex: succeeds only if nobody else currently holds
- * the claim (`claimedAt: null` in the WHERE clause). Postgres serializes
- * concurrent UPDATEs on the same row, so of two overlapping invocations
- * racing this call, only one can ever see `count > 0` — the other's WHERE
- * no longer matches once the first commits. See the schema comment on
- * `WorkflowTask.claimedAt` for why this exists (Vercel serverless has no
- * shared in-memory state across invocations). */
+/** A task claimed longer ago than this is assumed to belong to a
+ * crashed/killed invocation, not one still legitimately mid-execution —
+ * confirmed necessary live: killing a dev server mid-task once left a task
+ * claimed forever with no process left to ever release it. Generous on
+ * purpose: a single task's execute-or-verify pass can include a real LLM
+ * call plus, now, up to WALLET_LOCK_ACQUIRE_TIMEOUT_MS of real chain writes
+ * (escrow release, reputation record), so this must comfortably exceed the
+ * worst realistic legitimate duration, not just the common case. */
+const TASK_CLAIM_STALE_MS = 600_000;
+
+/** Atomic cross-process mutex: succeeds if nobody currently holds the claim,
+ * or if whoever did hasn't touched it in TASK_CLAIM_STALE_MS. Postgres
+ * serializes concurrent UPDATEs on the same row, so of two overlapping
+ * invocations racing this call, only one can ever see `count > 0` — the
+ * other's WHERE no longer matches once the first commits. See the schema
+ * comment on `WorkflowTask.claimedAt` for why this exists (Vercel
+ * serverless has no shared in-memory state across invocations). */
 export async function claimTask(taskId: string): Promise<boolean> {
   const prisma = await getPrisma();
+  const staleBefore = new Date(Date.now() - TASK_CLAIM_STALE_MS);
   const result = await prisma.workflowTask.updateMany({
-    where: { id: taskId, claimedAt: null },
+    where: { id: taskId, OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }] },
     data: { claimedAt: new Date() },
   });
   return result.count > 0;
@@ -349,9 +360,19 @@ const WALLET_LOCK_ID = "orchestrator";
 /** A held lock older than this is assumed to belong to a crashed/killed
  * invocation rather than one still legitimately mid-transaction -- without
  * this, one bad crash between acquire and release would permanently
- * deadlock every future escrow write. */
-const WALLET_LOCK_STALE_MS = 60_000;
-const WALLET_LOCK_ACQUIRE_TIMEOUT_MS = 20_000;
+ * deadlock every future escrow write. Kept comfortably above
+ * WALLET_LOCK_ACQUIRE_TIMEOUT_MS: a waiter blocked for the full acquire
+ * timeout must always time out on its own before this would consider
+ * stealing whatever lock it's waiting on, or two callers could both believe
+ * they hold it. */
+const WALLET_LOCK_STALE_MS = 120_000;
+/** Raised from an original 20s after live testing showed AgentRegistry +
+ * Reputation writes (on top of escrow lock/release/refund) can queue 3-4
+ * deep on the same wallet when multiple goals settle concurrently -- each
+ * on-chain write (simulate + submit + wait for receipt) can itself take
+ * 10-20s on X Layer Testnet, so a shallow timeout was firing under
+ * perfectly normal concurrent load, not just genuine contention. */
+const WALLET_LOCK_ACQUIRE_TIMEOUT_MS = 90_000;
 const WALLET_LOCK_RETRY_DELAY_MS = 300;
 
 /** Cross-process mutex for the orchestrator wallet's on-chain writes -- see

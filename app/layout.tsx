@@ -26,7 +26,7 @@ export const metadata: Metadata = {
   title: "VYRON — Every Goal. Executed.",
   description:
     "VYRON is an autonomous execution agent that turns one high-level goal into a coordinated network of specialized Agent Service Providers — planned, matched, escrowed, and delivered without you lifting a finger.",
-  metadataBase: new URL("https://vyron.ai"),
+  metadataBase: new URL("https://vyron.click"),
   openGraph: {
     title: "VYRON — Every Goal. Executed.",
     description:

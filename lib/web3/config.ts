@@ -79,7 +79,7 @@ export const wagmiConfig = createConfig({
         provider: okxWalletProvider,
       },
     }),
-    metaMask({ dappMetadata: { name: "VYRON", url: "https://vyron.ai" } }),
+    metaMask({ dappMetadata: { name: "VYRON", url: "https://vyron.click" } }),
     ...(walletConnectProjectId
       ? [
           walletConnect({
@@ -87,7 +87,7 @@ export const wagmiConfig = createConfig({
             metadata: {
               name: "VYRON",
               description: "Every goal. Executed.",
-              url: "https://vyron.ai",
+              url: "https://vyron.click",
               icons: [],
             },
           }),

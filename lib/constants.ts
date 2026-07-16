@@ -108,7 +108,7 @@ export const CORE_FEATURES: {
   },
   {
     icon: ShieldCheck,
-    title: "Escrow Simulator",
+    title: "On-Chain Escrow",
     description:
       "Funds lock on assignment and release only after delivery is verified. No agent gets paid for work that wasn't done.",
   },
@@ -134,6 +134,6 @@ export const CORE_FEATURES: {
     icon: Coins,
     title: "X Layer Settlement",
     description:
-      "Wallet-native settlement built for the OKX X Layer, architected for real on-chain escrow at production scale.",
+      "Wallet-native settlement live on OKX X Layer — real contracts, real transactions, no simulated funding path.",
   },
 ] as const;

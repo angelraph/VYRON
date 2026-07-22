@@ -1,0 +1,30 @@
+name: VYRON agent heartbeat
+
+# OKX only controls the marketplace *listing* — online/offline status is
+# self-reported by the agent via `onchainos agent heartbeat`. Nothing was
+# sending one, so VYRON (#4962) drifted offline after a few idle days. This
+# runs the heartbeat independently of the Vercel deployment, authenticated
+# with an OKX API Key/Secret/Passphrase (not the interactive OTP session
+# used for local dev) so it keeps working even when nobody's machine is on.
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Fetch onchainos CLI
+        run: node scripts/fetch-onchainos.mjs
+      - name: Send heartbeat
+        run: ./bin/onchainos agent heartbeat --chain-index 196
+        env:
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}

@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "app/api/asp/honeypot/route": ["./bin/onchainos"],
+    "app/api/cron/heartbeat/route": ["./bin/onchainos"],
   },
   webpack: (config) => {
     // WalletConnect's dependency tree references optional logger transports

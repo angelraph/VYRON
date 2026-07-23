@@ -50,3 +50,7 @@ skills-lock.json
 
 # onchainos Linux binary, fetched+verified at build time (scripts/fetch-onchainos.mjs)
 /bin/
+
+# per-project isolated onchainos session (scripts/onchainos-here.ps1)
+/.onchainos-home*/
+vyron-session-bundle.b64.txt

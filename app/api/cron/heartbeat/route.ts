@@ -5,9 +5,9 @@ import { logger } from "@/lib/logger";
  * is self-reported via `onchainos agent heartbeat`. GitHub Actions' schedule
  * trigger throttles sub-hourly crons unpredictably, so this gives an
  * external pinger (cron-job.org) a reliable HTTP endpoint to hit instead,
- * reusing the same bundled-binary + silent AK-login path the honeypot
- * scanner already uses in this Lambda. Chain 196 is X Layer/OKB, where
- * VYRON (#4962) is registered. */
+ * reusing the bundled binary + restored-session login path (see
+ * ensureBundledLogin in lib/onchainos.ts) the honeypot scanner also uses in
+ * this Lambda. Chain 196 is X Layer/OKB, where VYRON (#4962) is registered. */
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");
   if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -24,6 +24,7 @@ export async function GET(request: Request) {
       logger.error("agent_heartbeat", { stage: "agent_heartbeat", outcome: "failure", response: stdout });
       return Response.json({ ok: false }, { status: 502 });
     }
+
     return Response.json({ ok: true });
   } catch (error) {
     const execError = error as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
